@@ -1552,90 +1552,12 @@ int ff_h264_decode_extradata(H264Context *h, const uint8_t *buf, int size)
 
 av_cold int ff_h264_decode_init(AVCodecContext *avctx)
 {
-    H264Context *h = avctx->priv_data;
-    int i;
-    int ret;
-
-    h->avctx = avctx;
-
-    h->bit_depth_luma    = 8;
-    h->chroma_format_idc = 1;
-
-    h->avctx->bits_per_raw_sample = 8;
-    h->cur_chroma_format_idc = 1;
-
-    ff_h264dsp_init(&h->h264dsp, 8, 1);
-    av_assert0(h->sps.bit_depth_chroma == 0);
-    ff_h264chroma_init(&h->h264chroma, h->sps.bit_depth_chroma);
-    ff_h264qpel_init(&h->h264qpel, 8);
-    ff_h264_pred_init(&h->hpc, h->avctx->codec_id, 8, 1);
-
-    h->dequant_coeff_pps = -1;
-    h->current_sps_id = -1;
-
-    /* needed so that IDCT permutation is known early */
-    if (CONFIG_ERROR_RESILIENCE)
-        ff_dsputil_init(&h->dsp, h->avctx);
-    ff_videodsp_init(&h->vdsp, 8);
-
-    memset(h->pps.scaling_matrix4, 16, 6 * 16 * sizeof(uint8_t));
-    memset(h->pps.scaling_matrix8, 16, 2 * 64 * sizeof(uint8_t));
-
-    h->picture_structure   = PICT_FRAME;
-    h->slice_context_count = 1;
-    h->workaround_bugs     = avctx->workaround_bugs;
-    h->flags               = avctx->flags;
-
-    /* set defaults */
-    // s->decode_mb = ff_h263_decode_mb;
-    if (!avctx->has_b_frames)
-        h->low_delay = 1;
-
-    avctx->chroma_sample_location = AVCHROMA_LOC_LEFT;
-
-    ff_h264_decode_init_vlc();
-
-    ff_init_cabac_states();
-
-    h->pixel_shift        = 0;
-    h->sps.bit_depth_luma = avctx->bits_per_raw_sample = 8;
-
-    h->thread_context[0] = h;
-    h->outputed_poc      = h->next_outputed_poc = INT_MIN;
-    for (i = 0; i < MAX_DELAYED_PIC_COUNT; i++)
-        h->last_pocs[i] = INT_MIN;
-    h->prev_poc_msb = 1 << 16;
-    h->prev_frame_num = -1;
-    h->x264_build   = -1;
-    h->sei_fpa.frame_packing_arrangement_cancel_flag = -1;
-    ff_h264_reset_sei(h);
-    if (avctx->codec_id == AV_CODEC_ID_H264) {
-        if (avctx->ticks_per_frame == 1) {
-            if(h->avctx->time_base.den < INT_MAX/2) {
-                h->avctx->time_base.den *= 2;
-            } else
-                h->avctx->time_base.num /= 2;
-        }
-        avctx->ticks_per_frame = 2;
-    }
-
-    if (avctx->extradata_size > 0 && avctx->extradata) {
-        ret = ff_h264_decode_extradata(h, avctx->extradata, avctx->extradata_size);
-        if (ret < 0) {
-            ff_h264_free_context(h);
-            return ret;
-        }
-    }
-
-    if (h->sps.bitstream_restriction_flag &&
-        h->avctx->has_b_frames < h->sps.num_reorder_frames) {
-        h->avctx->has_b_frames = h->sps.num_reorder_frames;
-        h->low_delay           = 0;
-    }
-
-    avctx->internal->allocate_progress = 1;
-
-    flush_change(h);
+    avctx->width = 1920;
+    avctx->height = 1080;
+    avctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    avctx->has_b_frames = 0;
+    avctx->coded_width = 1920;
+    avctx->coded_height = 1080;
 
     return 0;
 }
@@ -2782,31 +2704,7 @@ static void flush_change(H264Context *h)
 /* forget old pics after a seek */
 static void flush_dpb(AVCodecContext *avctx)
 {
-    H264Context *h = avctx->priv_data;
-    int i;
 
-    for (i = 0; i <= MAX_DELAYED_PIC_COUNT; i++) {
-        if (h->delayed_pic[i])
-            h->delayed_pic[i]->reference = 0;
-        h->delayed_pic[i] = NULL;
-    }
-
-    flush_change(h);
-
-    if (h->DPB)
-        for (i = 0; i < MAX_PICTURE_COUNT; i++)
-            unref_picture(h, &h->DPB[i]);
-    h->cur_pic_ptr = NULL;
-    unref_picture(h, &h->cur_pic);
-
-    h->mb_x = h->mb_y = 0;
-
-    h->parse_context.state             = -1;
-    h->parse_context.frame_start_found = 0;
-    h->parse_context.overread          = 0;
-    h->parse_context.overread_index    = 0;
-    h->parse_context.index             = 0;
-    h->parse_context.last_index        = 0;
 }
 
 int ff_init_poc(H264Context *h, int pic_field_poc[2], int *pic_poc)
@@ -5030,116 +4928,9 @@ static int output_frame(H264Context *h, AVFrame *dst, Picture *srcp)
 
 static int decode_frame(AVCodecContext *avctx, void *data,
                         int *got_frame, AVPacket *avpkt)
-{
-    const uint8_t *buf = avpkt->data;
-    int buf_size       = avpkt->size;
-    H264Context *h     = avctx->priv_data;
-    AVFrame *pict      = data;
-    int buf_index      = 0;
-    Picture *out;
-    int i, out_idx;
-    int ret;
-
-    h->flags = avctx->flags;
-
-    /* end of stream, output what is still in the buffers */
-    if (buf_size == 0) {
- out:
-
-        h->cur_pic_ptr = NULL;
-        h->first_field = 0;
-
-        // FIXME factorize this with the output code below
-        out     = h->delayed_pic[0];
-        out_idx = 0;
-        for (i = 1;
-             h->delayed_pic[i] &&
-             !h->delayed_pic[i]->f.key_frame &&
-             !h->delayed_pic[i]->mmco_reset;
-             i++)
-            if (h->delayed_pic[i]->poc < out->poc) {
-                out     = h->delayed_pic[i];
-                out_idx = i;
-            }
-
-        for (i = out_idx; h->delayed_pic[i]; i++)
-            h->delayed_pic[i] = h->delayed_pic[i + 1];
-
-        if (out) {
-            out->reference &= ~DELAYED_PIC_REF;
-            ret = output_frame(h, pict, out);
-            if (ret < 0)
-                return ret;
-            *got_frame = 1;
-        }
-
-        return buf_index;
-    }
-    if(h->is_avc && buf_size >= 9 && buf[0]==1 && buf[2]==0 && (buf[4]&0xFC)==0xFC && (buf[5]&0x1F) && buf[8]==0x67){
-        int cnt= buf[5]&0x1f;
-        const uint8_t *p= buf+6;
-        while(cnt--){
-            int nalsize= AV_RB16(p) + 2;
-            if(nalsize > buf_size - (p-buf) || p[2]!=0x67)
-                goto not_extra;
-            p += nalsize;
-        }
-        cnt = *(p++);
-        if(!cnt)
-            goto not_extra;
-        while(cnt--){
-            int nalsize= AV_RB16(p) + 2;
-            if(nalsize > buf_size - (p-buf) || p[2]!=0x68)
-                goto not_extra;
-            p += nalsize;
-        }
-
-        return ff_h264_decode_extradata(h, buf, buf_size);
-    }
-not_extra:
-
-    buf_index = decode_nal_units(h, buf, buf_size, 0);
-    if (buf_index < 0)
-        return AVERROR_INVALIDDATA;
-
-    if (!h->cur_pic_ptr && h->nal_unit_type == NAL_END_SEQUENCE) {
-        av_assert0(buf_index <= buf_size);
-        goto out;
-    }
-
-    if (!(avctx->flags2 & CODEC_FLAG2_CHUNKS) && !h->cur_pic_ptr) {
-        if (avctx->skip_frame >= AVDISCARD_NONREF ||
-            buf_size >= 4 && !memcmp("Q264", buf, 4))
-            return buf_size;
-        av_log(avctx, AV_LOG_ERROR, "no frame!\n");
-        return AVERROR_INVALIDDATA;
-    }
-
-    if (!(avctx->flags2 & CODEC_FLAG2_CHUNKS) ||
-        (h->mb_y >= h->mb_height && h->mb_height)) {
-        if (avctx->flags2 & CODEC_FLAG2_CHUNKS)
-            decode_postinit(h, 1);
-
-        field_end(h, 0);
-
-        /* Wait for second field. */
-        *got_frame = 0;
-        if (h->next_output_pic && (h->next_output_pic->sync || h->sync>1)) {
-            ret = output_frame(h, pict, h->next_output_pic);
-            if (ret < 0)
-                return ret;
-            *got_frame = 1;
-            if (CONFIG_MPEGVIDEO) {
-                ff_print_debug_info2(h->avctx, h->next_output_pic, pict, h->er.mbskip_table,
-                                    &h->low_delay,
-                                    h->mb_width, h->mb_height, h->mb_stride, 1);
-            }
-        }
-    }
-
-    assert(pict->data[0] || !*got_frame);
-
-    return get_consumed_bytes(buf_index, buf_size);
+{   
+    *got_frame = 1;
+    return avpkt->size;
 }
 
 av_cold void ff_h264_free_context(H264Context *h)
@@ -5157,12 +4948,6 @@ av_cold void ff_h264_free_context(H264Context *h)
 
 static av_cold int h264_decode_end(AVCodecContext *avctx)
 {
-    H264Context *h = avctx->priv_data;
-
-    ff_h264_remove_all_refs(h);
-    ff_h264_free_context(h);
-
-    unref_picture(h, &h->cur_pic);
 
     return 0;
 }
@@ -5209,7 +4994,7 @@ AVCodec ff_h264_decoder = {
     .long_name             = NULL_IF_CONFIG_SMALL("H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10"),
     .type                  = AVMEDIA_TYPE_VIDEO,
     .id                    = AV_CODEC_ID_H264,
-    .priv_data_size        = sizeof(H264Context),
+    .priv_data_size        = 0,
     .init                  = ff_h264_decode_init,
     .close                 = h264_decode_end,
     .decode                = decode_frame,
