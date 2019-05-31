@@ -708,7 +708,7 @@ int ff_interleave_packet_per_dts(AVFormatContext *s, AVPacket *out,
             }
         }
         if (s->nb_streams == stream_count+noninterleaved_count &&
-           delta_dts_max > 20*AV_TIME_BASE) {
+           delta_dts_max > 1) {
             av_log(s, AV_LOG_DEBUG, "flushing with %d noninterleaved\n", noninterleaved_count);
             flush = 1;
         }
@@ -848,24 +848,46 @@ int av_get_output_timestamp(struct AVFormatContext *s, int stream,
     return 0;
 }
 
-int ff_write_chained(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
-                     AVFormatContext *src)
+static int ff_write_chained_base(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
+                                 AVFormatContext *src, int (*write_func)(AVFormatContext*, AVPacket *pkt))
 {
     AVPacket local_pkt;
+    int ret;
 
     local_pkt = *pkt;
     local_pkt.stream_index = dst_stream;
     if (pkt->pts != AV_NOPTS_VALUE)
-        local_pkt.pts = av_rescale_q(pkt->pts,
-                                     src->streams[pkt->stream_index]->time_base,
-                                     dst->streams[dst_stream]->time_base);
+     local_pkt.pts = av_rescale_q(pkt->pts,
+                                  src->streams[pkt->stream_index]->time_base,
+                                  dst->streams[dst_stream]->time_base);
+
     if (pkt->dts != AV_NOPTS_VALUE)
         local_pkt.dts = av_rescale_q(pkt->dts,
                                      src->streams[pkt->stream_index]->time_base,
                                      dst->streams[dst_stream]->time_base);
+
     if (pkt->duration)
         local_pkt.duration = av_rescale_q(pkt->duration,
                                           src->streams[pkt->stream_index]->time_base,
                                           dst->streams[dst_stream]->time_base);
-    return av_write_frame(dst, &local_pkt);
+
+    ret = write_func(dst, &local_pkt);
+
+    pkt->buf = local_pkt.buf;
+    pkt->destruct = local_pkt.destruct;
+    return ret;
+}
+
+
+int ff_write_chained_interleave(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
+                                AVFormatContext *src)
+{
+    return ff_write_chained_base(dst, dst_stream, pkt, src, &av_interleaved_write_frame);
+}
+
+
+int ff_write_chained(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
+                     AVFormatContext *src)
+{
+    return ff_write_chained_base(dst, dst_stream, pkt, src, &av_write_frame);
 }
