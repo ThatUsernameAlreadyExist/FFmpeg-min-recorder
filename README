@@ -5,7 +5,7 @@ Minimalistic version of FFmpeg for record h264-video archive in mkv format.
 Support splitting videostream to multiple files, prerecord, postrecord, loop recording with removing of old files.
 Building for mips:
     - unpack MIPS toolchain to 'mips-gcc' folder near 'FFmpeg-min-recorder' folder
-    - configure_ffmpeg_min_recorder_linux_mips.sh
+    - ./configure_ffmpeg_min_recorder_linux_mips.sh
     - make
 
 Usage: 
