@@ -24,7 +24,6 @@
 --enable-protocol=rtmp \
 --enable-protocol=rtp \
 --enable-protocol=tcp \
---disable-pthreads \
 --disable-safe-bitstream-reader \
 --enable-demuxer=h264 \
 --enable-parser=h264 \

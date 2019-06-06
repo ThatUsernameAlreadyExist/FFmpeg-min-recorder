@@ -34,8 +34,6 @@ CROSS_COMPILE=$TOOLCHAIN/mips-linux-gnu-
 --enable-protocol=rtmp \
 --enable-protocol=rtp \
 --enable-protocol=tcp \
---disable-pthreads \
---disable-w32threads \
 --disable-safe-bitstream-reader \
 --enable-demuxer=h264 \
 --enable-parser=h264 \
