@@ -26,6 +26,7 @@
     #include <sys/statvfs.h>
     #include <sys/stat.h>
     #include <glob.h>
+    #include <pthread.h>
 #endif
 
 #include <strings.h>
@@ -39,6 +40,7 @@
 #include "avformat.h"
 #include "internal.h"
 
+#include "libavutil/atomic.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/avstring.h"
@@ -57,7 +59,8 @@
 #define FILE_NAME_MASK                           "/*-*-*_*-*-*.mkv"
 #define DEFAULT_FILE_DURATION_MILLIS             30000
 #define DEFAULT_RESERVED_DISK_SPACE_MB           50 /* MegaBytes */
-#define MAX_OLD_FILES_TO_REMOVE                  5
+#define MAX_OLD_FILES_TO_REMOVE                  15
+#define MAX_THREAD_STACK_SIZE                    (512 * 1024)
 
 
 typedef struct
@@ -102,6 +105,12 @@ typedef struct {
 #ifdef OS_WINDOWS
     char            segment_filepath_buffer[256];
     char            segment_filename_buffer[256];
+#else
+    pthread_t       free_space_thread;
+    int             need_check_free_space;
+    int             need_stop_free_space_thread;
+    glob_t          glob_info;
+    int             glob_position;
 #endif
 } SegmentContext;
 
@@ -341,6 +350,21 @@ static int get_disk_free_space_mb(SegmentContext *seg)
 #endif
 }
 
+
+static void free_glob_info(SegmentContext *seg)
+{
+#ifndef OS_WINDOWS
+    if (seg->glob_position != -1)
+    {
+        globfree(&seg->glob_info);
+        seg->glob_position = -1;
+
+        av_log(NULL, AV_LOG_INFO, "extsegment free stored glob info\n");
+    }
+#endif
+}
+
+
 #ifdef OS_WINDOWS
 
 static int remove_oldest_segment_file(SegmentContext *seg)
@@ -404,23 +428,130 @@ static void remove_old_segments_by_reserved_space(SegmentContext *seg)
     {
         av_log(NULL, AV_LOG_INFO, "extsegment not enough disk free space\n");
 
-        glob_t info;
-
-        if (glob(seg->segment_filemask, 0, NULL, &info) == 0) /* Must return sorted file array */
+        if (seg->glob_position == -1 ||
+            seg->glob_position >= seg->glob_info.gl_pathc)
         {
-            int max_files_to_remove = FFMIN(MAX_OLD_FILES_TO_REMOVE, info.gl_pathc);
-            for (int i = 0; i < max_files_to_remove && get_disk_free_space_mb(seg) < seg->reserved_disk_space_mb; ++i)
-            {
-                remove(info.gl_pathv[i]);
-                av_log(NULL, AV_LOG_INFO, "extsegment remove file: %s\n", info.gl_pathv[i]);
-            }
+            free_glob_info(seg);
 
-            globfree(&info);
+            /* Store glob() result in internal variable 'seg->glob_info' to speedup next calls to 'remove_old_segments_by_reserved_space' */
+            if (glob(seg->segment_filemask, 0, NULL, &seg->glob_info) == 0) /* Must return sorted file array */
+            {
+                seg->glob_position = 0;
+                av_log(NULL, AV_LOG_INFO, "extsegment perform new glob\n");
+            }
+            else
+            {
+                av_log(NULL, AV_LOG_ERROR, "extsegment glob error\n");
+            }
+        }
+        else
+        {
+            av_log(NULL, AV_LOG_INFO, "extsegment reuse stored glob result: %i from %i\n", (int)seg->glob_position, (int)seg->glob_info.gl_pathc);
+        }
+
+        if (seg->glob_position != -1)
+        {
+            int max_files_pos = FFMIN(seg->glob_position + MAX_OLD_FILES_TO_REMOVE, seg->glob_info.gl_pathc);
+            for (int i = seg->glob_position; i < max_files_pos && get_disk_free_space_mb(seg) < seg->reserved_disk_space_mb; ++i)
+            {
+                remove(seg->glob_info.gl_pathv[i]);
+                seg->glob_position = i + 1;
+                av_log(NULL, AV_LOG_INFO, "extsegment remove file: %s\n", seg->glob_info.gl_pathv[i]);
+            }
+        }
+        else
+        {
+            av_log(NULL, AV_LOG_INFO, "extsegment can't free disk space: undefined glob_position\n");
         }
     }
 }
 
 #endif
+
+
+static void* free_space_thread(void *param)
+{
+#ifndef OS_WINDOWS
+    SegmentContext *seg = (SegmentContext*)param;
+
+    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+    pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, NULL);
+
+    while (avpriv_atomic_int_get(&seg->need_stop_free_space_thread) == 0)
+    {
+        if (__sync_bool_compare_and_swap(&seg->need_check_free_space, 1, 0))
+        {
+            remove_old_segments_by_reserved_space(seg);
+        }
+
+        sleep(1);
+    }
+
+    av_log(NULL, AV_LOG_INFO, "extsegment free space thread exited\n");
+#endif
+
+    return NULL;
+}
+
+
+static void start_free_space_thread(SegmentContext *seg)
+{
+#ifndef OS_WINDOWS
+    seg->need_check_free_space = 0;
+    seg->need_stop_free_space_thread = 0;
+    seg->free_space_thread = 0;
+
+    pthread_attr_t attribute;
+
+    if (pthread_attr_init(&attribute) == 0)
+    {
+        size_t cur_stack_size = 0;
+        if (pthread_attr_getstacksize(&attribute, &cur_stack_size) == 0 &&
+            cur_stack_size > MAX_THREAD_STACK_SIZE)
+        {
+            pthread_attr_setstacksize(&attribute, MAX_THREAD_STACK_SIZE);
+            av_log(NULL, AV_LOG_INFO, "extsegment reduce free space thread stack size from: %i to %i bytes\n", (int)cur_stack_size, MAX_THREAD_STACK_SIZE);
+        }
+    }
+
+    if (pthread_create(&seg->free_space_thread, &attribute, free_space_thread, (void *)seg) != 0 ||
+        seg->free_space_thread == 0)
+    {
+        av_log(NULL, AV_LOG_ERROR, "extsegment can't start free space thread\n");
+    }
+
+    pthread_attr_destroy(&attribute);
+#endif
+}
+
+
+static void stop_free_space_thread(SegmentContext *seg)
+{
+#ifndef OS_WINDOWS
+    if (seg->free_space_thread != 0)
+    {
+        avpriv_atomic_int_set(&seg->need_stop_free_space_thread, 1);
+        pthread_join(seg->free_space_thread, NULL);
+
+        seg->free_space_thread = 0;
+    }
+#endif
+}
+
+
+static void check_free_space(SegmentContext *seg)
+{
+#ifndef OS_WINDOWS
+    if (seg->free_space_thread != 0)
+    {
+        avpriv_atomic_int_set(&seg->need_check_free_space, 1);
+    }
+    else
+#endif
+    {
+        remove_old_segments_by_reserved_space(seg);
+    }
+}
 
 
 static int segment_start(AVFormatContext *s, AVPacket *pkt)
@@ -435,7 +566,7 @@ static int segment_start(AVFormatContext *s, AVPacket *pkt)
         goto fail;
     }
 
-    remove_old_segments_by_reserved_space(seg);
+    check_free_space(seg);
 
     /* Clear timestamps arrays */
     fill_array(seg->first_packet_millis_array, STREAM_COUNT_LIMIT, PTS_MILLIS_NONE);
@@ -522,6 +653,10 @@ static int seg_write_header(AVFormatContext *s)
     seg->need_create_new_file = 1;
     seg->file_writing_stopped_packet_millis = PTS_MILLIS_NONE;
 
+#ifndef OS_WINDOWS
+    seg->glob_position = -1;
+#endif
+
     clear_avg_array(&seg->avg_frames_interval);
 
     for (int i = 0; i < s->nb_streams; i++)
@@ -588,6 +723,8 @@ static int seg_write_header(AVFormatContext *s)
     {
         ret = segment_start(s, NULL);
     }
+
+    start_free_space_thread(seg);
 
     return ret;
 }
@@ -906,7 +1043,12 @@ static int seg_write_trailer(struct AVFormatContext *s)
         seg->control_file_id = -1;
     }
 
-    return segment_end(oc, seg);
+    int ret = segment_end(oc, seg);
+
+    stop_free_space_thread(seg);
+    free_glob_info(seg);
+
+    return ret;
 }
 
 #define OFFSET(x) offsetof(SegmentContext, x)
