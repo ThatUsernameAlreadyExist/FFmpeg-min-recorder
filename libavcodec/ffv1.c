@@ -39,7 +39,7 @@
 #include "mathops.h"
 #include "ffv1.h"
 
-av_cold int ffv1_common_init(AVCodecContext *avctx)
+av_cold int ff_ffv1_common_init(AVCodecContext *avctx)
 {
     FFV1Context *s = avctx->priv_data;
 
@@ -49,12 +49,10 @@ av_cold int ffv1_common_init(AVCodecContext *avctx)
     s->avctx = avctx;
     s->flags = avctx->flags;
 
-    s->picture.f = avcodec_alloc_frame();
+    s->picture.f = av_frame_alloc();
     s->last_picture.f = av_frame_alloc();
     if (!s->picture.f || !s->last_picture.f)
         return AVERROR(ENOMEM);
-
-    ff_dsputil_init(&s->dsp, avctx);
 
     s->width  = avctx->width;
     s->height = avctx->height;
@@ -66,7 +64,7 @@ av_cold int ffv1_common_init(AVCodecContext *avctx)
     return 0;
 }
 
-av_cold int ffv1_init_slice_state(FFV1Context *f, FFV1Context *fs)
+av_cold int ff_ffv1_init_slice_state(FFV1Context *f, FFV1Context *fs)
 {
     int j;
 
@@ -77,13 +75,13 @@ av_cold int ffv1_init_slice_state(FFV1Context *f, FFV1Context *fs)
 
         if (fs->ac) {
             if (!p->state)
-                p->state = av_malloc(CONTEXT_SIZE * p->context_count *
+                p->state = av_malloc_array(p->context_count, CONTEXT_SIZE *
                                      sizeof(uint8_t));
             if (!p->state)
                 return AVERROR(ENOMEM);
         } else {
             if (!p->vlc_state)
-                p->vlc_state = av_malloc(p->context_count * sizeof(VlcState));
+                p->vlc_state = av_malloc_array(p->context_count, sizeof(VlcState));
             if (!p->vlc_state)
                 return AVERROR(ENOMEM);
         }
@@ -100,18 +98,18 @@ av_cold int ffv1_init_slice_state(FFV1Context *f, FFV1Context *fs)
     return 0;
 }
 
-av_cold int ffv1_init_slices_state(FFV1Context *f)
+av_cold int ff_ffv1_init_slices_state(FFV1Context *f)
 {
     int i, ret;
     for (i = 0; i < f->slice_count; i++) {
         FFV1Context *fs = f->slice_context[i];
-        if ((ret = ffv1_init_slice_state(f, fs)) < 0)
+        if ((ret = ff_ffv1_init_slice_state(f, fs)) < 0)
             return AVERROR(ENOMEM);
     }
     return 0;
 }
 
-av_cold int ffv1_init_slice_contexts(FFV1Context *f)
+av_cold int ff_ffv1_init_slice_contexts(FFV1Context *f)
 {
     int i;
 
@@ -119,16 +117,16 @@ av_cold int ffv1_init_slice_contexts(FFV1Context *f)
     av_assert0(f->slice_count > 0);
 
     for (i = 0; i < f->slice_count; i++) {
-        FFV1Context *fs = av_mallocz(sizeof(*fs));
         int sx          = i % f->num_h_slices;
         int sy          = i / f->num_h_slices;
         int sxs         = f->avctx->width  *  sx      / f->num_h_slices;
         int sxe         = f->avctx->width  * (sx + 1) / f->num_h_slices;
         int sys         = f->avctx->height *  sy      / f->num_v_slices;
         int sye         = f->avctx->height * (sy + 1) / f->num_v_slices;
+        FFV1Context *fs = av_mallocz(sizeof(*fs));
 
         if (!fs)
-            return AVERROR(ENOMEM);
+            goto memfail;
 
         f->slice_context[i] = fs;
         memcpy(fs, f, sizeof(*fs));
@@ -139,20 +137,29 @@ av_cold int ffv1_init_slice_contexts(FFV1Context *f)
         fs->slice_x      = sxs;
         fs->slice_y      = sys;
 
-        fs->sample_buffer = av_malloc(3 * MAX_PLANES * (fs->width + 6) *
+        fs->sample_buffer = av_malloc_array((fs->width + 6), 3 * MAX_PLANES *
                                       sizeof(*fs->sample_buffer));
-        if (!fs->sample_buffer)
-            return AVERROR(ENOMEM);
+        if (!fs->sample_buffer) {
+            av_freep(&f->slice_context[i]);
+            goto memfail;
+        }
     }
     return 0;
+
+memfail:
+    while(--i >= 0) {
+        av_freep(&f->slice_context[i]->sample_buffer);
+        av_freep(&f->slice_context[i]);
+    }
+    return AVERROR(ENOMEM);
 }
 
-int ffv1_allocate_initial_states(FFV1Context *f)
+int ff_ffv1_allocate_initial_states(FFV1Context *f)
 {
     int i;
 
     for (i = 0; i < f->quant_table_count; i++) {
-        f->initial_states[i] = av_malloc(f->context_count[i] *
+        f->initial_states[i] = av_malloc_array(f->context_count[i],
                                          sizeof(*f->initial_states[i]));
         if (!f->initial_states[i])
             return AVERROR(ENOMEM);
@@ -162,7 +169,7 @@ int ffv1_allocate_initial_states(FFV1Context *f)
     return 0;
 }
 
-void ffv1_clear_slice_state(FFV1Context *f, FFV1Context *fs)
+void ff_ffv1_clear_slice_state(FFV1Context *f, FFV1Context *fs)
 {
     int i, j;
 
@@ -190,7 +197,7 @@ void ffv1_clear_slice_state(FFV1Context *f, FFV1Context *fs)
 }
 
 
-av_cold int ffv1_close(AVCodecContext *avctx)
+av_cold int ff_ffv1_close(AVCodecContext *avctx)
 {
     FFV1Context *s = avctx->priv_data;
     int i, j;

@@ -108,8 +108,8 @@ static av_cold int libopus_decode_init(AVCodecContext *avc)
     }
 #endif
 
-    avc->internal->skip_samples = opus->pre_skip;
-    avc->delay = 3840;  /* Decoder delay (in samples) at 48kHz */
+    /* Decoder delay (in samples) at 48kHz */
+    avc->delay = avc->internal->skip_samples = opus->pre_skip;
 
     return 0;
 }
@@ -191,7 +191,7 @@ AVCodec ff_libopus_decoder = {
     .close          = libopus_decode_close,
     .decode         = libopus_decode,
     .flush          = libopus_flush,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
     .sample_fmts    = (const enum AVSampleFormat[]){ AV_SAMPLE_FMT_FLT,
                                                      AV_SAMPLE_FMT_S16,
                                                      AV_SAMPLE_FMT_NONE },

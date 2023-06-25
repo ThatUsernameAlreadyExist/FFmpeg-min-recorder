@@ -32,7 +32,7 @@
 #include "internal.h"
 #include "video.h"
 
-typedef struct {
+typedef struct FieldOrderContext {
     const AVClass *class;
     int dst_tff;               ///< output bff/tff
     int          line_size[4]; ///< bytes of pixel data per line for each plane
@@ -47,9 +47,10 @@ static int query_formats(AVFilterContext *ctx)
     /** accept any input pixel format that is not hardware accelerated, not
      *  a bitstream format, and does not have vertically sub-sampled chroma */
     if (ctx->inputs[0]) {
+        const AVPixFmtDescriptor *desc = NULL;
         formats = NULL;
-        for (pix_fmt = 0; pix_fmt < AV_PIX_FMT_NB; pix_fmt++) {
-            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+        while ((desc = av_pix_fmt_desc_next(desc))) {
+            pix_fmt = av_pix_fmt_desc_get_id(desc);
             if (!(desc->flags & AV_PIX_FMT_FLAG_HWACCEL ||
                   desc->flags & AV_PIX_FMT_FLAG_PAL     ||
                   desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) &&
@@ -103,7 +104,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
         av_frame_copy_props(out, frame);
     }
 
-    av_dlog(ctx,
+    av_log(ctx, AV_LOG_TRACE,
             "picture will move %s one line\n",
             s->dst_tff ? "up" : "down");
     h = frame->height;
@@ -184,7 +185,7 @@ static const AVFilterPad avfilter_vf_fieldorder_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_fieldorder = {
+AVFilter ff_vf_fieldorder = {
     .name          = "fieldorder",
     .description   = NULL_IF_CONFIG_SMALL("Set the field order."),
     .priv_size     = sizeof(FieldOrderContext),

@@ -46,14 +46,13 @@ typedef struct MergePlanesContext {
     const AVPixFmtDescriptor *outdesc;
 
     FFFrameSync fs;
-    FFFrameSyncIn fsin[3]; /* must be immediately after fs */
 } MergePlanesContext;
 
 #define OFFSET(x) offsetof(MergePlanesContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption mergeplanes_options[] = {
     { "mapping", "set input to output plane mapping", OFFSET(mapping), AV_OPT_TYPE_INT, {.i64=0}, 0, 0x33333333, FLAGS },
-    { "format", "set output pixel format", OFFSET(out_fmt), AV_OPT_TYPE_PIXEL_FMT, {.i64=AV_PIX_FMT_YUVA444P}, .flags=FLAGS },
+    { "format", "set output pixel format", OFFSET(out_fmt), AV_OPT_TYPE_PIXEL_FMT, {.i64=AV_PIX_FMT_YUVA444P}, 0, INT_MAX, .flags=FLAGS },
     { NULL }
 };
 
@@ -120,7 +119,7 @@ static int query_formats(AVFilterContext *ctx)
     int i;
 
     s->outdesc = av_pix_fmt_desc_get(s->out_fmt);
-    for (i = 0; i < AV_PIX_FMT_NB; i++) {
+    for (i = 0; av_pix_fmt_desc_get(i); i++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(i);
         if (desc->comp[0].depth_minus1 == s->outdesc->comp[0].depth_minus1 &&
             av_pix_fmt_count_planes(i) == desc->nb_components)
@@ -174,9 +173,11 @@ static int config_output(AVFilterLink *outlink)
     MergePlanesContext *s = ctx->priv;
     InputParam inputsp[4];
     FFFrameSyncIn *in;
-    int i;
+    int i, ret;
 
-    ff_framesync_init(&s->fs, ctx, s->nb_inputs);
+    if ((ret = ff_framesync_init(&s->fs, ctx, s->nb_inputs)) < 0)
+        return ret;
+
     in = s->fs.in;
     s->fs.opaque = s;
     s->fs.on_event = process_frame;
@@ -299,7 +300,7 @@ static const AVFilterPad mergeplanes_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_mergeplanes = {
+AVFilter ff_vf_mergeplanes = {
     .name          = "mergeplanes",
     .description   = NULL_IF_CONFIG_SMALL("Merge planes."),
     .priv_size     = sizeof(MergePlanesContext),

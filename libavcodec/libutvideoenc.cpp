@@ -39,17 +39,24 @@ static av_cold int utvideo_encode_init(AVCodecContext *avctx)
     UtVideoContext *utv = (UtVideoContext *)avctx->priv_data;
     UtVideoExtra *info;
     uint32_t flags, in_format;
+    int ret;
 
     switch (avctx->pix_fmt) {
     case AV_PIX_FMT_YUV420P:
         in_format = UTVF_YV12;
         avctx->bits_per_coded_sample = 12;
-        avctx->codec_tag = MKTAG('U', 'L', 'Y', '0');
+        if (avctx->colorspace == AVCOL_SPC_BT709)
+            avctx->codec_tag = MKTAG('U', 'L', 'H', '0');
+        else
+            avctx->codec_tag = MKTAG('U', 'L', 'Y', '0');
         break;
     case AV_PIX_FMT_YUYV422:
         in_format = UTVF_YUYV;
         avctx->bits_per_coded_sample = 16;
-        avctx->codec_tag = MKTAG('U', 'L', 'Y', '2');
+        if (avctx->colorspace == AVCOL_SPC_BT709)
+            avctx->codec_tag = MKTAG('U', 'L', 'H', '2');
+        else
+            avctx->codec_tag = MKTAG('U', 'L', 'Y', '2');
         break;
     case AV_PIX_FMT_BGR24:
         in_format = UTVF_NFCC_BGR_BU;
@@ -74,12 +81,11 @@ static av_cold int utvideo_encode_init(AVCodecContext *avctx)
     flags = ((avctx->prediction_method + 1) << 8) | (avctx->thread_count - 1);
 
     avctx->priv_data = utv;
-    avctx->coded_frame = avcodec_alloc_frame();
 
     /* Alloc extradata buffer */
     info = (UtVideoExtra *)av_malloc(sizeof(*info));
 
-    if (info == NULL) {
+    if (!info) {
         av_log(avctx, AV_LOG_ERROR, "Could not allocate extradata buffer.\n");
         return AVERROR(ENOMEM);
     }
@@ -88,12 +94,18 @@ static av_cold int utvideo_encode_init(AVCodecContext *avctx)
      * We use this buffer to hold the data that Ut Video returns,
      * since we cannot decode planes separately with it.
      */
-    utv->buf_size = avpicture_get_size(avctx->pix_fmt,
-                                       avctx->width, avctx->height);
+    ret = avpicture_get_size(avctx->pix_fmt, avctx->width, avctx->height);
+    if (ret < 0) {
+        av_free(info);
+        return ret;
+    }
+    utv->buf_size = ret;
+
     utv->buffer = (uint8_t *)av_malloc(utv->buf_size);
 
     if (utv->buffer == NULL) {
         av_log(avctx, AV_LOG_ERROR, "Could not allocate output buffer.\n");
+        av_free(info);
         return AVERROR(ENOMEM);
     }
 
@@ -131,7 +143,7 @@ static int utvideo_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     uint8_t *dst;
 
     /* Alloc buffer */
-    if ((ret = ff_alloc_packet2(avctx, pkt, utv->buf_size)) < 0)
+    if ((ret = ff_alloc_packet2(avctx, pkt, utv->buf_size, 0)) < 0)
         return ret;
 
     dst = pkt->data;
@@ -186,8 +198,6 @@ static int utvideo_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
      * assert that this is true.
      */
     av_assert2(keyframe == true);
-    avctx->coded_frame->key_frame = 1;
-    avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
 
     pkt->flags |= AV_PKT_FLAG_KEY;
     *got_packet = 1;
@@ -198,7 +208,6 @@ static av_cold int utvideo_encode_close(AVCodecContext *avctx)
 {
     UtVideoContext *utv = (UtVideoContext *)avctx->priv_data;
 
-    av_freep(&avctx->coded_frame);
     av_freep(&avctx->extradata);
     av_freep(&utv->buffer);
 
@@ -213,7 +222,7 @@ AVCodec ff_libutvideo_encoder = {
     NULL_IF_CONFIG_SMALL("Ut Video"),
     AVMEDIA_TYPE_VIDEO,
     AV_CODEC_ID_UTVIDEO,
-    CODEC_CAP_AUTO_THREADS | CODEC_CAP_LOSSLESS,
+    AV_CODEC_CAP_AUTO_THREADS | AV_CODEC_CAP_LOSSLESS | AV_CODEC_CAP_INTRA_ONLY,
     NULL, /* supported_framerates */
     (const enum AVPixelFormat[]) {
         AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUYV422, AV_PIX_FMT_BGR24,

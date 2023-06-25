@@ -110,7 +110,7 @@ static const int qpeg_table_w[16] =
  { 0x00, 0x20, 0x18, 0x08, 0x18, 0x10, 0x20, 0x10, 0x08, 0x10, 0x20, 0x20, 0x08, 0x10, 0x18, 0x04};
 
 /* Decodes delta frames */
-static void qpeg_decode_inter(QpegContext *qctx, uint8_t *dst,
+static void av_noinline qpeg_decode_inter(QpegContext *qctx, uint8_t *dst,
                               int stride, int width, int height,
                               int delta, const uint8_t *ctable,
                               uint8_t *refdata)
@@ -120,12 +120,13 @@ static void qpeg_decode_inter(QpegContext *qctx, uint8_t *dst,
     int filled = 0;
     int orig_height;
 
-    if(!refdata)
-        refdata= dst;
-
-    /* copy prev frame */
-    for(i = 0; i < height; i++)
-        memcpy(dst + (i * stride), refdata + (i * stride), width);
+    if (refdata) {
+        /* copy prev frame */
+        for (i = 0; i < height; i++)
+            memcpy(dst + (i * stride), refdata + (i * stride), width);
+    } else {
+        refdata = dst;
+    }
 
     orig_height = height;
     height--;
@@ -163,7 +164,7 @@ static void qpeg_decode_inter(QpegContext *qctx, uint8_t *dst,
 
                     /* check motion vector */
                     if ((me_x + filled < 0) || (me_x + me_w + filled > width) ||
-                       (height - me_y - me_h < 0) || (height - me_y > orig_height) ||
+                       (height - me_y - me_h < 0) || (height - me_y >= orig_height) ||
                        (filled + me_w > width) || (height - me_h < 0))
                         av_log(NULL, AV_LOG_ERROR, "Bogus motion vector (%i,%i), block size %ix%i at %i,%i\n",
                                me_x, me_y, me_w, me_h, filled, height);
@@ -325,8 +326,6 @@ static av_cold int decode_end(AVCodecContext *avctx)
 static av_cold int decode_init(AVCodecContext *avctx){
     QpegContext * const a = avctx->priv_data;
 
-    avcodec_get_frame_defaults(&a->pic);
-    avcodec_get_frame_defaults(&a->ref);
     a->avctx = avctx;
     avctx->pix_fmt= AV_PIX_FMT_PAL8;
 
@@ -352,5 +351,5 @@ AVCodec ff_qpeg_decoder = {
     .close          = decode_end,
     .decode         = decode_frame,
     .flush          = decode_flush,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

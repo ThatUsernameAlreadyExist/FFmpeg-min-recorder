@@ -53,7 +53,7 @@ static av_cold int tta_encode_init(AVCodecContext *avctx)
     s->bps = avctx->bits_per_raw_sample >> 3;
     avctx->frame_size = 256 * avctx->sample_rate / 245;
 
-    s->ch_ctx = av_malloc(avctx->channels * sizeof(*s->ch_ctx));
+    s->ch_ctx = av_malloc_array(avctx->channels, sizeof(*s->ch_ctx));
     if (!s->ch_ctx)
         return AVERROR(ENOMEM);
 
@@ -116,7 +116,7 @@ static int tta_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     PutBitContext pb;
     int ret, i, out_bytes, cur_chan = 0, res = 0, samples = 0;
 
-    if ((ret = ff_alloc_packet2(avctx, avpkt, frame->nb_samples * 2 * avctx->channels * s->bps)) < 0)
+    if ((ret = ff_alloc_packet2(avctx, avpkt, frame->nb_samples * 2 * avctx->channels * s->bps, 0)) < 0)
         return ret;
     init_put_bits(&pb, avpkt->data, avpkt->size);
 
@@ -144,7 +144,7 @@ static int tta_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
         }
 
         temp = value;
-#define PRED(x, k) (int32_t)((((uint64_t)x << k) - x) >> k)
+#define PRED(x, k) (int32_t)((((uint64_t)(x) << (k)) - (x)) >> (k))
         switch (s->bps) {
         case 1: value -= PRED(c->predictor, 4); break;
         case 2:
@@ -224,7 +224,7 @@ AVCodec ff_tta_encoder = {
     .init           = tta_encode_init,
     .close          = tta_encode_close,
     .encode2        = tta_encode_frame,
-    .capabilities   = CODEC_CAP_SMALL_LAST_FRAME | CODEC_CAP_LOSSLESS,
+    .capabilities   = AV_CODEC_CAP_SMALL_LAST_FRAME | AV_CODEC_CAP_LOSSLESS,
     .sample_fmts    = (const enum AVSampleFormat[]){ AV_SAMPLE_FMT_U8,
                                                      AV_SAMPLE_FMT_S16,
                                                      AV_SAMPLE_FMT_S32,

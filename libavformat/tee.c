@@ -305,8 +305,7 @@ static void close_slaves(AVFormatContext *avf)
         av_freep(&tee->slaves[i].stream_map);
         av_freep(&tee->slaves[i].bsfs);
 
-        avio_close(avf2->pb);
-        avf2->pb = NULL;
+        avio_closep(&avf2->pb);
         avformat_free_context(avf2);
         tee->slaves[i].avf = NULL;
     }
@@ -397,7 +396,13 @@ static int filter_packet(void *log_ctx, AVPacket *pkt,
                                              &new_pkt.data, &new_pkt.size,
                                              pkt->data, pkt->size,
                                              pkt->flags & AV_PKT_FLAG_KEY);
-        if (ret == 0 && new_pkt.data != pkt->data && new_pkt.destruct) {
+FF_DISABLE_DEPRECATION_WARNINGS
+        if (ret == 0 && new_pkt.data != pkt->data
+#if FF_API_DESTRUCT_PACKET
+            && new_pkt.destruct
+#endif
+            ) {
+FF_ENABLE_DEPRECATION_WARNINGS
             if ((ret = av_copy_packet(&new_pkt, pkt)) < 0)
                 break;
             ret = 1;
@@ -410,16 +415,15 @@ static int filter_packet(void *log_ctx, AVPacket *pkt,
             if (!new_pkt.buf)
                 break;
         }
+        if (ret < 0) {
+            av_log(log_ctx, AV_LOG_ERROR,
+                "Failed to filter bitstream with filter %s for stream %d in file '%s' with codec %s\n",
+                bsf_ctx->filter->name, pkt->stream_index, fmt_ctx->filename,
+                avcodec_get_name(enc_ctx->codec_id));
+        }
         *pkt = new_pkt;
 
         bsf_ctx = bsf_ctx->next;
-    }
-
-    if (ret < 0) {
-        av_log(log_ctx, AV_LOG_ERROR,
-               "Failed to filter bitstream with filter %s for stream %d in file '%s' with codec %s\n",
-               bsf_ctx->filter->name, pkt->stream_index, fmt_ctx->filename,
-               avcodec_get_name(enc_ctx->codec_id));
     }
 
     return ret;
@@ -438,10 +442,9 @@ static int tee_write_trailer(AVFormatContext *avf)
             if (!ret_all)
                 ret_all = ret;
         if (!(avf2->oformat->flags & AVFMT_NOFILE)) {
-            if ((ret = avio_close(avf2->pb)) < 0)
+            if ((ret = avio_closep(&avf2->pb)) < 0)
                 if (!ret_all)
                     ret_all = ret;
-            avf2->pb = NULL;
         }
     }
     close_slaves(avf);
@@ -468,7 +471,7 @@ static int tee_write_packet(AVFormatContext *avf, AVPacket *pkt)
         if ((ret = av_copy_packet(&pkt2, pkt)) < 0 ||
             (ret = av_dup_packet(&pkt2))< 0)
             if (!ret_all) {
-                ret = ret_all;
+                ret_all = ret;
                 continue;
             }
         tb  = avf ->streams[s ]->time_base;

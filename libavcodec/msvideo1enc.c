@@ -58,7 +58,7 @@ enum MSV1Mode{
 
 #define SKIP_PREFIX 0x8400
 #define SKIPS_MAX 0x03FF
-#define MKRGB555(in, off) ((in[off] << 10) | (in[off + 1] << 5) | (in[off + 2]))
+#define MKRGB555(in, off) (((in)[off] << 10) | ((in)[(off) + 1] << 5) | ((in)[(off) + 2]))
 
 static const int remap[16] = { 0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15 };
 
@@ -76,7 +76,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     int skips = 0;
     int quality = 24;
 
-    if ((ret = ff_alloc_packet2(avctx, pkt, avctx->width*avctx->height*9 + FF_MIN_BUFFER_SIZE)) < 0)
+    if ((ret = ff_alloc_packet2(avctx, pkt, avctx->width*avctx->height*9 + AV_INPUT_BUFFER_MIN_SIZE, 0)) < 0)
         return ret;
     dst= buf= pkt->data;
 
@@ -116,8 +116,8 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             }
             // try to find optimal value to fill whole 4x4 block
             score = 0;
-            ff_init_elbg(c->block, 3, 16, c->avg, 1, 1, c->output, &c->rnd);
-            ff_do_elbg  (c->block, 3, 16, c->avg, 1, 1, c->output, &c->rnd);
+            avpriv_init_elbg(c->block, 3, 16, c->avg, 1, 1, c->output, &c->rnd);
+            avpriv_do_elbg  (c->block, 3, 16, c->avg, 1, 1, c->output, &c->rnd);
             if(c->avg[0] == 1) // red component = 1 will be written as skip code
                 c->avg[0] = 0;
             for(j = 0; j < 4; j++){
@@ -136,8 +136,8 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             }
             // search for optimal filling of 2-color block
             score = 0;
-            ff_init_elbg(c->block, 3, 16, c->codebook, 2, 1, c->output, &c->rnd);
-            ff_do_elbg  (c->block, 3, 16, c->codebook, 2, 1, c->output, &c->rnd);
+            avpriv_init_elbg(c->block, 3, 16, c->codebook, 2, 1, c->output, &c->rnd);
+            avpriv_do_elbg  (c->block, 3, 16, c->codebook, 2, 1, c->output, &c->rnd);
             // last output value should be always 1, swap codebooks if needed
             if(!c->output[15]){
                 for(i = 0; i < 3; i++)
@@ -162,8 +162,8 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             // search for optimal filling of 2-color 2x2 subblocks
             score = 0;
             for(i = 0; i < 4; i++){
-                ff_init_elbg(c->block2 + i*4*3, 3, 4, c->codebook2 + i*2*3, 2, 1, c->output2 + i*4, &c->rnd);
-                ff_do_elbg  (c->block2 + i*4*3, 3, 4, c->codebook2 + i*2*3, 2, 1, c->output2 + i*4, &c->rnd);
+                avpriv_init_elbg(c->block2 + i*4*3, 3, 4, c->codebook2 + i*2*3, 2, 1, c->output2 + i*4, &c->rnd);
+                avpriv_do_elbg  (c->block2 + i*4*3, 3, 4, c->codebook2 + i*2*3, 2, 1, c->output2 + i*4, &c->rnd);
             }
             // last value should be always 1, swap codebooks if needed
             if(!c->output2[15]){
@@ -266,7 +266,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
         return -1;
     }
     if((avctx->width&3) || (avctx->height&3)){
-        av_log(avctx, AV_LOG_ERROR, "width and height must be multiplies of 4\n");
+        av_log(avctx, AV_LOG_ERROR, "width and height must be multiples of 4\n");
         return -1;
     }
 

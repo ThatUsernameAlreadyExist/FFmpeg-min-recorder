@@ -271,7 +271,7 @@ static int smacker_decode_header_tree(SmackVContext *smk, GetBitContext *gb, int
     huff.length = ((size + 3) >> 2) + 4;
     huff.maxlength = 0;
     huff.current = 0;
-    huff.values = av_mallocz(huff.length * sizeof(int));
+    huff.values = av_mallocz_array(huff.length, sizeof(int));
     if (!huff.values) {
         err = AVERROR(ENOMEM);
         goto error;
@@ -438,7 +438,6 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     bw = avctx->width >> 2;
     bh = avctx->height >> 2;
     blocks = bw * bh;
-    out = smk->pic->data[0];
     stride = smk->pic->linesize[0];
     while(blk < blocks) {
         int type, run, mode;
@@ -499,7 +498,6 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
                     out += stride;
                     out[0] = out[1] = pix & 0xFF;
                     out[2] = out[3] = pix >> 8;
-                    out += stride;
                     break;
                 case 2:
                     for(i = 0; i < 2; i++) {
@@ -591,6 +589,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     /* decode huffman trees from extradata */
     if(avctx->extradata_size < 16){
         av_log(avctx, AV_LOG_ERROR, "Extradata missing!\n");
+        decode_end(avctx);
         return AVERROR(EINVAL);
     }
 
@@ -662,7 +661,7 @@ static int smka_decode_frame(AVCodecContext *avctx, void *data,
         av_log(avctx, AV_LOG_ERROR, "channels mismatch\n");
         return AVERROR(EINVAL);
     }
-    if (bits && avctx->sample_fmt == AV_SAMPLE_FMT_U8) {
+    if (bits == (avctx->sample_fmt == AV_SAMPLE_FMT_U8)) {
         av_log(avctx, AV_LOG_ERROR, "sample format mismatch\n");
         return AVERROR(EINVAL);
     }
@@ -814,7 +813,7 @@ AVCodec ff_smacker_decoder = {
     .init           = decode_init,
     .close          = decode_end,
     .decode         = decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };
 
 AVCodec ff_smackaud_decoder = {
@@ -824,5 +823,5 @@ AVCodec ff_smackaud_decoder = {
     .id             = AV_CODEC_ID_SMACKAUDIO,
     .init           = smka_decode_init,
     .decode         = smka_decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

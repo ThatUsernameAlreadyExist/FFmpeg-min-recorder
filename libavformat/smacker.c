@@ -23,6 +23,8 @@
  * Based on http://wiki.multimedia.cx/index.php?title=Smacker
  */
 
+#include <inttypes.h>
+
 #include "libavutil/bswap.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
@@ -92,11 +94,14 @@ static const uint8_t smk_pal[64] = {
 
 static int smacker_probe(AVProbeData *p)
 {
-    if(p->buf[0] == 'S' && p->buf[1] == 'M' && p->buf[2] == 'K'
-        && (p->buf[3] == '2' || p->buf[3] == '4'))
-        return AVPROBE_SCORE_MAX;
-    else
+    if (   AV_RL32(p->buf) != MKTAG('S', 'M', 'K', '2')
+        && AV_RL32(p->buf) != MKTAG('S', 'M', 'K', '4'))
         return 0;
+
+    if (AV_RL32(p->buf+4) > 32768U || AV_RL32(p->buf+8) > 32768U)
+        return AVPROBE_SCORE_MAX/4;
+
+    return AVPROBE_SCORE_MAX;
 }
 
 static int smacker_read_header(AVFormatContext *s)
@@ -139,7 +144,7 @@ static int smacker_read_header(AVFormatContext *s)
     smk->pad = avio_rl32(pb);
     /* setup data */
     if(smk->frames > 0xFFFFFF) {
-        av_log(s, AV_LOG_ERROR, "Too many frames: %i\n", smk->frames);
+        av_log(s, AV_LOG_ERROR, "Too many frames: %"PRIu32"\n", smk->frames);
         return AVERROR_INVALIDDATA;
     }
     smk->frm_size = av_malloc_array(smk->frames, sizeof(*smk->frm_size));
@@ -218,7 +223,9 @@ static int smacker_read_header(AVFormatContext *s)
 
     /* load trees to extradata, they will be unpacked by decoder */
     if(ff_alloc_extradata(st->codec, smk->treesize + 16)){
-        av_log(s, AV_LOG_ERROR, "Cannot allocate %i bytes of extradata\n", smk->treesize + 16);
+        av_log(s, AV_LOG_ERROR,
+               "Cannot allocate %"PRIu32" bytes of extradata\n",
+               smk->treesize + 16);
         av_freep(&smk->frm_size);
         av_freep(&smk->frm_flags);
         return AVERROR(ENOMEM);
@@ -250,7 +257,7 @@ static int smacker_read_packet(AVFormatContext *s, AVPacket *pkt)
     int frame_size = 0;
     int palchange = 0;
 
-    if (url_feof(s->pb) || smk->cur_frame >= smk->frames)
+    if (avio_feof(s->pb) || smk->cur_frame >= smk->frames)
         return AVERROR_EOF;
 
     /* if we demuxed all streams, pass another frame */
@@ -314,7 +321,7 @@ static int smacker_read_packet(AVFormatContext *s, AVPacket *pkt)
                 int err;
 
                 size = avio_rl32(s->pb) - 4;
-                if (!size || size + 4L > frame_size) {
+                if (!size || size + 4LL > frame_size) {
                     av_log(s, AV_LOG_ERROR, "Invalid audio part size\n");
                     return AVERROR_INVALIDDATA;
                 }

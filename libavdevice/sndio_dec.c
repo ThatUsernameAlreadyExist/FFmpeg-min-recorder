@@ -22,12 +22,14 @@
 #include <stdint.h>
 #include <sndio.h>
 
-#include "libavformat/avformat.h"
-#include "libavformat/internal.h"
+#include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/time.h"
 
-#include "sndio_common.h"
+#include "libavformat/avformat.h"
+#include "libavformat/internal.h"
+
+#include "libavdevice/sndio.h"
 
 static av_cold int audio_read_header(AVFormatContext *s1)
 {
@@ -104,6 +106,7 @@ static const AVClass sndio_demuxer_class = {
     .item_name      = av_default_item_name,
     .option         = options,
     .version        = LIBAVUTIL_VERSION_INT,
+    .category       = AV_CLASS_CATEGORY_DEVICE_AUDIO_INPUT,
 };
 
 AVInputFormat ff_sndio_demuxer = {

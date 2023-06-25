@@ -231,8 +231,8 @@ section .text align=16
     SUMSUB_SHPK m2,  m3,  m4,  m5,  m6,  m7,  %2
 %endmacro
 
-; void prores_idct_put_10_<opt>(uint8_t *pixels, int stride,
-;                               int16_t *block, const int16_t *qmat);
+; void ff_prores_idct_put_10_<opt>(uint8_t *pixels, int stride,
+;                                  int16_t *block, const int16_t *qmat);
 %macro idct_put_fn 1
 cglobal prores_idct_put_10, 4, 4, %1
     movsxd      r1,  r1d
@@ -300,23 +300,7 @@ cglobal prores_idct_put_10, 4, 4, %1
     RET
 %endmacro
 
-%macro SIGNEXTEND 2-3
-%if cpuflag(sse4) ; dstlow, dsthigh
-    movhlps     %2,  %1
-    pmovsxwd    %1,  %1
-    pmovsxwd    %2,  %2
-%elif cpuflag(sse2) ; dstlow, dsthigh, tmp
-    pxor        %3,  %3
-    pcmpgtw     %3,  %1
-    mova        %2,  %1
-    punpcklwd   %1,  %3
-    punpckhwd   %2,  %3
-%endif
-%endmacro
-
 INIT_XMM sse2
-idct_put_fn 16
-INIT_XMM sse4
 idct_put_fn 16
 %if HAVE_AVX_EXTERNAL
 INIT_XMM avx

@@ -23,7 +23,7 @@
 #include "libavutil/avstring.h"
 #include "internal.h"
 
-typedef struct {
+typedef struct IdStrMap {
     enum AVCodecID id;
     const char *str;
 } IdStrMap;
@@ -32,6 +32,7 @@ static const IdStrMap img_tags[] = {
     { AV_CODEC_ID_MJPEG,      "jpeg"     },
     { AV_CODEC_ID_MJPEG,      "jpg"      },
     { AV_CODEC_ID_MJPEG,      "jps"      },
+    { AV_CODEC_ID_MJPEG,      "mpo"      },
     { AV_CODEC_ID_LJPEG,      "ljpg"     },
     { AV_CODEC_ID_JPEGLS,     "jls"      },
     { AV_CODEC_ID_PNG,        "png"      },
@@ -43,6 +44,8 @@ static const IdStrMap img_tags[] = {
     { AV_CODEC_ID_PGMYUV,     "pgmyuv"   },
     { AV_CODEC_ID_PBM,        "pbm"      },
     { AV_CODEC_ID_PAM,        "pam"      },
+    { AV_CODEC_ID_ALIAS_PIX,  "pix"      },
+    { AV_CODEC_ID_DDS,        "dds"      },
     { AV_CODEC_ID_MPEG1VIDEO, "mpg1-img" },
     { AV_CODEC_ID_MPEG2VIDEO, "mpg2-img" },
     { AV_CODEC_ID_MPEG4,      "mpg4-img" },
@@ -56,7 +59,9 @@ static const IdStrMap img_tags[] = {
     { AV_CODEC_ID_SGI,        "sgi"      },
     { AV_CODEC_ID_PTX,        "ptx"      },
     { AV_CODEC_ID_PCX,        "pcx"      },
-    { AV_CODEC_ID_BRENDER_PIX, "pix"     },
+    { AV_CODEC_ID_QDRAW,      "pic"      },
+    { AV_CODEC_ID_QDRAW,      "pct"      },
+    { AV_CODEC_ID_QDRAW,      "pict"     },
     { AV_CODEC_ID_SUNRAST,    "sun"      },
     { AV_CODEC_ID_SUNRAST,    "ras"      },
     { AV_CODEC_ID_SUNRAST,    "rs"       },

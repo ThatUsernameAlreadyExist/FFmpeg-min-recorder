@@ -43,6 +43,7 @@ typedef struct {
     AVFrame **clean_src;    ///< frame queue for the clean source
     int got_frame[2];       ///< frame request flag for each input stream
     double ts_unit;         ///< timestamp units for the output frames
+    int64_t start_pts;      ///< base for output timestamps
     uint32_t eof;           ///< bitmask for end of stream
     int hsub, vsub;         ///< chroma subsampling values
     int depth;
@@ -210,11 +211,14 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             av_frame_free(&dm->queue[i].frame);
         } else {
             AVFrame *frame = dm->queue[i].frame;
+            if (frame->pts != AV_NOPTS_VALUE && dm->start_pts == AV_NOPTS_VALUE)
+                dm->start_pts = frame->pts;
             if (dm->ppsrc) {
                 av_frame_free(&frame);
                 frame = dm->clean_src[i];
             }
-            frame->pts = outlink->frame_count * dm->ts_unit;
+            frame->pts = outlink->frame_count * dm->ts_unit +
+                         (dm->start_pts == AV_NOPTS_VALUE ? 0 : dm->start_pts);
             ret = ff_filter_frame(outlink, frame);
             if (ret < 0)
                 break;
@@ -242,7 +246,7 @@ static int config_input(AVFilterLink *inlink)
     dm->nxblocks  = (w + dm->blockx/2 - 1) / (dm->blockx/2);
     dm->nyblocks  = (h + dm->blocky/2 - 1) / (dm->blocky/2);
     dm->bdiffsize = dm->nxblocks * dm->nyblocks;
-    dm->bdiffs    = av_malloc(dm->bdiffsize * sizeof(*dm->bdiffs));
+    dm->bdiffs    = av_malloc_array(dm->bdiffsize, sizeof(*dm->bdiffs));
     dm->queue     = av_calloc(dm->cycle, sizeof(*dm->queue));
 
     if (!dm->bdiffs || !dm->queue)
@@ -259,7 +263,7 @@ static int config_input(AVFilterLink *inlink)
 
 static av_cold int decimate_init(AVFilterContext *ctx)
 {
-    const DecimateContext *dm = ctx->priv;
+    DecimateContext *dm = ctx->priv;
     AVFilterPad pad = {
         .name         = av_strdup("main"),
         .type         = AVMEDIA_TYPE_VIDEO,
@@ -284,6 +288,8 @@ static av_cold int decimate_init(AVFilterContext *ctx)
         av_log(ctx, AV_LOG_ERROR, "blockx and blocky settings must be power of two\n");
         return AVERROR(EINVAL);
     }
+
+    dm->start_pts = AV_NOPTS_VALUE;
 
     return 0;
 }
@@ -344,8 +350,10 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAY16,
         AV_PIX_FMT_NONE
     };
-    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
-    return 0;
+    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
+    if (!fmts_list)
+        return AVERROR(ENOMEM);
+    return ff_set_common_formats(ctx, fmts_list);
 }
 
 static int config_output(AVFilterLink *outlink)
@@ -384,7 +392,7 @@ static const AVFilterPad decimate_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_decimate = {
+AVFilter ff_vf_decimate = {
     .name          = "decimate",
     .description   = NULL_IF_CONFIG_SMALL("Decimate frames (post field matching filter)."),
     .init          = decimate_init,

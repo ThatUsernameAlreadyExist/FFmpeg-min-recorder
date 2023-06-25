@@ -21,6 +21,15 @@
  * 3. This notice may not be removed or altered from any source distribution.
  */
 
+/**
+ * @file
+ * Computes the Adler-32 checksum of a data stream
+ *
+ * This is a modified version based on adler32.c from the zlib library.
+ * @author Mark Adler
+ * @ingroup lavu_adler32
+ */
+
 #include "config.h"
 #include "adler32.h"
 #include "common.h"
@@ -99,7 +108,7 @@ static volatile int checksum;
 int main(int argc, char **argv)
 {
     int i;
-    char data[LEN];
+    uint8_t data[LEN];
 
     av_log_set_level(AV_LOG_DEBUG);
 

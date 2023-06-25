@@ -51,6 +51,7 @@ void (*rgb16to15)(const uint8_t *src, uint8_t *dst, int src_size);
 void (*rgb15to16)(const uint8_t *src, uint8_t *dst, int src_size);
 void (*rgb15to32)(const uint8_t *src, uint8_t *dst, int src_size);
 
+void (*shuffle_bytes_0321)(const uint8_t *src, uint8_t *dst, int src_size);
 void (*shuffle_bytes_2103)(const uint8_t *src, uint8_t *dst, int src_size);
 
 void (*yv12toyuy2)(const uint8_t *ysrc, const uint8_t *usrc,
@@ -83,6 +84,9 @@ void (*planar2x)(const uint8_t *src, uint8_t *dst, int width, int height,
 void (*interleaveBytes)(const uint8_t *src1, const uint8_t *src2, uint8_t *dst,
                         int width, int height, int src1Stride,
                         int src2Stride, int dstStride);
+void (*deinterleaveBytes)(const uint8_t *src, uint8_t *dst1, uint8_t *dst2,
+                          int width, int height, int srcStride,
+                          int dst1Stride, int dst2Stride);
 void (*vu9_to_vu12)(const uint8_t *src1, const uint8_t *src2,
                     uint8_t *dst1, uint8_t *dst2,
                     int width, int height,
@@ -330,7 +334,6 @@ void shuffle_bytes_ ## a ## b ## c ## d(const uint8_t *src,             \
     }                                                                   \
 }
 
-DEFINE_SHUFFLE_BYTES(0, 3, 2, 1)
 DEFINE_SHUFFLE_BYTES(1, 2, 3, 0)
 DEFINE_SHUFFLE_BYTES(3, 0, 1, 2)
 DEFINE_SHUFFLE_BYTES(3, 2, 1, 0)

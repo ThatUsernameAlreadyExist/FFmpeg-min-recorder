@@ -40,7 +40,9 @@ typedef struct ResampleContext {
     AVAudioResampleContext *avr;
     AVDictionary *options;
 
+    int resampling;
     int64_t next_pts;
+    int64_t next_in_pts;
 
     /* set by filter_frame() to signal an output frame to request_frame() */
     int got_output;
@@ -116,6 +118,8 @@ static int config_output(AVFilterLink *outlink)
     char buf1[64], buf2[64];
     int ret;
 
+    int64_t resampling_forced;
+
     if (s->avr) {
         avresample_close(s->avr);
         avresample_free(&s->avr);
@@ -134,11 +138,14 @@ static int config_output(AVFilterLink *outlink)
         return AVERROR(ENOMEM);
 
     if (s->options) {
+        int ret;
         AVDictionaryEntry *e = NULL;
         while ((e = av_dict_get(s->options, "", e, AV_DICT_IGNORE_SUFFIX)))
             av_log(ctx, AV_LOG_VERBOSE, "lavr option: %s=%s\n", e->key, e->value);
 
-        av_opt_set_dict(s->avr, &s->options);
+        ret = av_opt_set_dict(s->avr, &s->options);
+        if (ret < 0)
+            return ret;
     }
 
     av_opt_set_int(s->avr,  "in_channel_layout", inlink ->channel_layout, 0);
@@ -151,8 +158,15 @@ static int config_output(AVFilterLink *outlink)
     if ((ret = avresample_open(s->avr)) < 0)
         return ret;
 
-    outlink->time_base = (AVRational){ 1, outlink->sample_rate };
-    s->next_pts        = AV_NOPTS_VALUE;
+    av_opt_get_int(s->avr, "force_resampling", 0, &resampling_forced);
+    s->resampling = resampling_forced || (inlink->sample_rate != outlink->sample_rate);
+
+    if (s->resampling) {
+        outlink->time_base = (AVRational){ 1, outlink->sample_rate };
+        s->next_pts        = AV_NOPTS_VALUE;
+        s->next_in_pts     = AV_NOPTS_VALUE;
+    } else
+        outlink->time_base = inlink->time_base;
 
     av_get_channel_layout_string(buf1, sizeof(buf1),
                                  -1, inlink ->channel_layout);
@@ -179,10 +193,7 @@ static int request_frame(AVFilterLink *outlink)
     /* flush the lavr delay buffer */
     if (ret == AVERROR_EOF && s->avr) {
         AVFrame *frame;
-        int nb_samples = av_rescale_rnd(avresample_get_delay(s->avr),
-                                        outlink->sample_rate,
-                                        ctx->inputs[0]->sample_rate,
-                                        AV_ROUND_UP);
+        int nb_samples = avresample_get_out_samples(s->avr, 0);
 
         if (!nb_samples)
             return ret;
@@ -199,6 +210,7 @@ static int request_frame(AVFilterLink *outlink)
             return (ret == 0) ? AVERROR_EOF : ret;
         }
 
+        frame->nb_samples = ret;
         frame->pts = s->next_pts;
         return ff_filter_frame(outlink, frame);
     }
@@ -218,9 +230,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         /* maximum possible samples lavr can output */
         delay      = avresample_get_delay(s->avr);
-        nb_samples = av_rescale_rnd(in->nb_samples + delay,
-                                    outlink->sample_rate, inlink->sample_rate,
-                                    AV_ROUND_UP);
+        nb_samples = avresample_get_out_samples(s->avr, in->nb_samples);
 
         out = ff_get_audio_buffer(outlink, nb_samples);
         if (!out) {
@@ -239,7 +249,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         av_assert0(!avresample_available(s->avr));
 
-        if (s->next_pts == AV_NOPTS_VALUE) {
+        if (s->resampling && s->next_pts == AV_NOPTS_VALUE) {
             if (in->pts == AV_NOPTS_VALUE) {
                 av_log(ctx, AV_LOG_WARNING, "First timestamp is missing, "
                        "assuming 0.\n");
@@ -251,15 +261,32 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
         if (ret > 0) {
             out->nb_samples = ret;
-            if (in->pts != AV_NOPTS_VALUE) {
-                out->pts = av_rescale_q(in->pts, inlink->time_base,
-                                            outlink->time_base) -
-                               av_rescale(delay, outlink->sample_rate,
-                                          inlink->sample_rate);
-            } else
-                out->pts = s->next_pts;
 
-            s->next_pts = out->pts + out->nb_samples;
+            ret = av_frame_copy_props(out, in);
+            if (ret < 0) {
+                av_frame_free(&out);
+                goto fail;
+            }
+
+            if (s->resampling) {
+                out->sample_rate = outlink->sample_rate;
+                /* Only convert in->pts if there is a discontinuous jump.
+                   This ensures that out->pts tracks the number of samples actually
+                   output by the resampler in the absence of such a jump.
+                   Otherwise, the rounding in av_rescale_q() and av_rescale()
+                   causes off-by-1 errors. */
+                if (in->pts != AV_NOPTS_VALUE && in->pts != s->next_in_pts) {
+                    out->pts = av_rescale_q(in->pts, inlink->time_base,
+                                                outlink->time_base) -
+                                   av_rescale(delay, outlink->sample_rate,
+                                              inlink->sample_rate);
+                } else
+                    out->pts = s->next_pts;
+
+                s->next_pts = out->pts + out->nb_samples;
+                s->next_in_pts = in->pts + in->nb_samples;
+            } else
+                out->pts = in->pts;
 
             ret = ff_filter_frame(outlink, out);
             s->got_output = 1;
@@ -314,7 +341,7 @@ static const AVFilterPad avfilter_af_resample_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_resample = {
+AVFilter ff_af_resample = {
     .name          = "resample",
     .description   = NULL_IF_CONFIG_SMALL("Audio resampling and conversion."),
     .priv_size     = sizeof(ResampleContext),

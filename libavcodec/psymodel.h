@@ -29,7 +29,7 @@
 /** maximum number of channels */
 #define PSY_MAX_CHANS 20
 
-#define AAC_CUTOFF(s) (s->bit_rate ? FFMIN3(4000 + s->bit_rate/8, 12000 + s->bit_rate/32, s->sample_rate / 2) : (s->sample_rate / 2))
+#define AAC_CUTOFF(s) ((s)->bit_rate ? FFMIN3(4000 + (s)->bit_rate/8, 12000 + (s)->bit_rate/32, (s)->sample_rate / 2) : ((s)->sample_rate / 2))
 
 /**
  * single band psychoacoustic information
@@ -38,8 +38,7 @@ typedef struct FFPsyBand {
     int   bits;
     float energy;
     float threshold;
-    float distortion;
-    float perceptual_weight;
+    float spread;    /* Energy spread over the band */
 } FFPsyBand;
 
 /**
@@ -67,6 +66,7 @@ typedef struct FFPsyWindowInfo {
     int window_shape;                 ///< window shape (sine/KBD/whatever)
     int num_windows;                  ///< number of windows in a frame
     int grouping[8];                  ///< window grouping (for e.g. AAC)
+    float clipping[8];                ///< maximum absolute normalized intensity in the given window for clip avoidance
     int *window_sizes;                ///< sequence of window sizes inside one frame (for eg. WMA)
 } FFPsyWindowInfo;
 

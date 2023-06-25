@@ -25,8 +25,12 @@
  */
 
 #include <string.h>
+
+#include "libavutil/error.h"
+#include "libavutil/mem.h"
+
 #include "avcodec.h"
-#include "mjpeg.h"
+#include "jpegtables.h"
 
 static const uint8_t jpeg_header[] = {
     0xff, 0xd8,                     // SOI

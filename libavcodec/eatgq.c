@@ -32,7 +32,7 @@
 #define BITSTREAM_READER_LE
 #include "get_bits.h"
 #include "bytestream.h"
-#include "dsputil.h"
+#include "idctdsp.h"
 #include "aandcttab.h"
 #include "eaidct.h"
 #include "internal.h"
@@ -51,9 +51,9 @@ static av_cold int tgq_decode_init(AVCodecContext *avctx)
     TgqContext *s = avctx->priv_data;
     uint8_t idct_permutation[64];
     s->avctx = avctx;
-    ff_init_scantable_permutation(idct_permutation, FF_NO_IDCT_PERM);
+    ff_init_scantable_permutation(idct_permutation, FF_IDCT_PERM_NONE);
     ff_init_scantable(idct_permutation, &s->scantable, ff_zigzag_direct);
-    avctx->time_base = (AVRational){1, 15};
+    avctx->framerate = (AVRational){ 15, 1 };
     avctx->pix_fmt   = AV_PIX_FMT_YUV420P;
     return 0;
 }
@@ -116,7 +116,7 @@ static void tgq_idct_put_mb(TgqContext *s, int16_t (*block)[64], AVFrame *frame,
     ff_ea_idct_put_c(dest_y                + 8, linesize, block[1]);
     ff_ea_idct_put_c(dest_y + 8 * linesize    , linesize, block[2]);
     ff_ea_idct_put_c(dest_y + 8 * linesize + 8, linesize, block[3]);
-    if (!(s->avctx->flags & CODEC_FLAG_GRAY)) {
+    if (!(s->avctx->flags & AV_CODEC_FLAG_GRAY)) {
          ff_ea_idct_put_c(dest_cb, frame->linesize[1], block[4]);
          ff_ea_idct_put_c(dest_cr, frame->linesize[2], block[5]);
     }
@@ -142,7 +142,7 @@ static void tgq_idct_put_mb_dconly(TgqContext *s, AVFrame *frame,
     tgq_dconly(s, dest_y                + 8, linesize, dc[1]);
     tgq_dconly(s, dest_y + 8 * linesize,     linesize, dc[2]);
     tgq_dconly(s, dest_y + 8 * linesize + 8, linesize, dc[3]);
-    if (!(s->avctx->flags & CODEC_FLAG_GRAY)) {
+    if (!(s->avctx->flags & AV_CODEC_FLAG_GRAY)) {
         tgq_dconly(s, dest_cb, frame->linesize[1], dc[4]);
         tgq_dconly(s, dest_cr, frame->linesize[2], dc[5]);
     }
@@ -219,9 +219,10 @@ static int tgq_decode_frame(AVCodecContext *avctx,
         s->height = bytestream2_get_le16u(&s->gb);
     }
 
-    if (s->avctx->width!=s->width || s->avctx->height!=s->height) {
-        avcodec_set_dimensions(s->avctx, s->width, s->height);
-    }
+    ret = ff_set_dimensions(s->avctx, s->width, s->height);
+    if (ret < 0)
+        return ret;
+
     tgq_calculate_qtable(s, bytestream2_get_byteu(&s->gb));
     bytestream2_skip(&s->gb, 3);
 
@@ -248,5 +249,5 @@ AVCodec ff_eatgq_decoder = {
     .priv_data_size = sizeof(TgqContext),
     .init           = tgq_decode_init,
     .decode         = tgq_decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

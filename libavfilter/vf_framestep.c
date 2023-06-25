@@ -28,7 +28,7 @@
 #include "internal.h"
 #include "video.h"
 
-typedef struct {
+typedef struct NullContext {
     const AVClass *class;
     int frame_step;
 } FrameStepContext;
@@ -90,7 +90,7 @@ static const AVFilterPad framestep_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_framestep = {
+AVFilter ff_vf_framestep = {
     .name        = "framestep",
     .description = NULL_IF_CONFIG_SMALL("Select one frame every N frames."),
     .priv_size   = sizeof(FrameStepContext),

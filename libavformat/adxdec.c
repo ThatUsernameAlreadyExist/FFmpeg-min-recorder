@@ -24,7 +24,6 @@
  */
 
 #include "libavutil/intreadwrite.h"
-#include "libavcodec/adx.h"
 #include "avformat.h"
 #include "internal.h"
 
@@ -40,6 +39,11 @@ static int adx_read_packet(AVFormatContext *s, AVPacket *pkt)
     ADXDemuxerContext *c = s->priv_data;
     AVCodecContext *avctx = s->streams[0]->codec;
     int ret, size;
+
+    if (avctx->channels <= 0) {
+        av_log(s, AV_LOG_ERROR, "invalid number of channels %d\n", avctx->channels);
+        return AVERROR_INVALIDDATA;
+    }
 
     size = BLOCK_SIZE * avctx->channels;
 
@@ -66,7 +70,6 @@ static int adx_read_header(AVFormatContext *s)
 {
     ADXDemuxerContext *c = s->priv_data;
     AVCodecContext *avctx;
-    int ret;
 
     AVStream *st = avformat_new_stream(s, NULL);
     if (!st)
@@ -78,19 +81,20 @@ static int adx_read_header(AVFormatContext *s)
     c->header_size = avio_rb16(s->pb) + 4;
     avio_seek(s->pb, -4, SEEK_CUR);
 
-    if (ff_alloc_extradata(avctx, c->header_size))
+    if (ff_get_extradata(avctx, s->pb, c->header_size) < 0)
         return AVERROR(ENOMEM);
-    if (avio_read(s->pb, avctx->extradata, c->header_size) < c->header_size) {
-        av_freep(&avctx->extradata);
-        return AVERROR(EIO);
-    }
-    avctx->extradata_size = c->header_size;
 
-    ret = avpriv_adx_decode_header(avctx, avctx->extradata,
-                                   avctx->extradata_size, &c->header_size,
-                                   NULL);
-    if (ret)
-        return ret;
+    if (avctx->extradata_size < 12) {
+        av_log(s, AV_LOG_ERROR, "Invalid extradata size.\n");
+        return AVERROR_INVALIDDATA;
+    }
+    avctx->channels    = AV_RB8(avctx->extradata + 7);
+    avctx->sample_rate = AV_RB32(avctx->extradata + 8);
+
+    if (avctx->channels <= 0) {
+        av_log(s, AV_LOG_ERROR, "invalid number of channels %d\n", avctx->channels);
+        return AVERROR_INVALIDDATA;
+    }
 
     st->codec->codec_type  = AVMEDIA_TYPE_AUDIO;
     st->codec->codec_id    = s->iformat->raw_codec_id;

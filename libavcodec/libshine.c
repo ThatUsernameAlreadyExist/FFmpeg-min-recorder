@@ -71,7 +71,7 @@ static int libshine_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     SHINEContext *s = avctx->priv_data;
     MPADecodeHeader hdr;
     unsigned char *data;
-    long written;
+    int written;
     int ret, len;
 
     if (frame)
@@ -102,7 +102,7 @@ static int libshine_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
 
     len = hdr.frame_size;
     if (len <= s->buffer_index) {
-        if ((ret = ff_alloc_packet2(avctx, avpkt, len)))
+        if ((ret = ff_alloc_packet2(avctx, avpkt, len, 0)))
             return ret;
         memcpy(avpkt->data, s->buffer, len);
         s->buffer_index -= len;
@@ -134,12 +134,12 @@ AVCodec ff_libshine_encoder = {
     .name                  = "libshine",
     .long_name             = NULL_IF_CONFIG_SMALL("libshine MP3 (MPEG audio layer 3)"),
     .type                  = AVMEDIA_TYPE_AUDIO,
-    .id                    = CODEC_ID_MP3,
+    .id                    = AV_CODEC_ID_MP3,
     .priv_data_size        = sizeof(SHINEContext),
     .init                  = libshine_encode_init,
     .encode2               = libshine_encode_frame,
     .close                 = libshine_encode_close,
-    .capabilities          = CODEC_CAP_DELAY,
+    .capabilities          = AV_CODEC_CAP_DELAY,
     .sample_fmts           = (const enum AVSampleFormat[]){ AV_SAMPLE_FMT_S16P,
                                                             AV_SAMPLE_FMT_NONE },
     .supported_samplerates = libshine_sample_rates,

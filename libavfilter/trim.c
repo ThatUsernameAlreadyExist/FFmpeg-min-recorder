@@ -18,6 +18,7 @@
 
 #include <float.h>
 #include <math.h>
+#include <stdint.h>
 
 #include "config.h"
 
@@ -227,7 +228,7 @@ static const AVFilterPad trim_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_trim = {
+AVFilter ff_vf_trim = {
     .name        = "trim",
     .description = NULL_IF_CONFIG_SMALL("Pick one continuous section from the input, drop the rest."),
     .init        = init,
@@ -243,7 +244,7 @@ static int atrim_filter_frame(AVFilterLink *inlink, AVFrame *frame)
 {
     AVFilterContext *ctx = inlink->dst;
     TrimContext       *s = ctx->priv;
-    int64_t start_sample, end_sample = frame->nb_samples;
+    int64_t start_sample, end_sample;
     int64_t pts;
     int drop;
 
@@ -382,7 +383,7 @@ static const AVFilterPad atrim_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_atrim = {
+AVFilter ff_af_atrim = {
     .name        = "atrim",
     .description = NULL_IF_CONFIG_SMALL("Pick one continuous section from the input, drop the rest."),
     .init        = init,

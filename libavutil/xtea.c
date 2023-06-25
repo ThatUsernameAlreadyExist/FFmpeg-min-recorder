@@ -21,10 +21,29 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+/**
+ * @file
+ * @brief XTEA 32-bit implementation
+ * @author Samuel Pitoiset
+ * @ingroup lavu_xtea
+ */
+
 #include "avutil.h"
 #include "common.h"
 #include "intreadwrite.h"
+#include "mem.h"
 #include "xtea.h"
+
+#if !FF_API_CRYPTO_CONTEXT
+struct AVXTEA {
+    uint32_t key[16];
+};
+#endif
+
+AVXTEA *av_xtea_alloc(void)
+{
+    return av_mallocz(sizeof(struct AVXTEA));
+}
 
 void av_xtea_init(AVXTEA *ctx, const uint8_t key[16])
 {

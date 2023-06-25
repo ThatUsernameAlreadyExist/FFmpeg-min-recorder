@@ -33,7 +33,7 @@ enum FieldType { FIELD_TYPE_TOP = 0, FIELD_TYPE_BOTTOM };
 
 typedef struct {
     const AVClass *class;
-    enum FieldType type;
+    int type;                   ///< FieldType
     int nb_planes;              ///< number of planes of the current format
 } FieldContext;
 
@@ -101,7 +101,7 @@ static const AVFilterPad field_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_field = {
+AVFilter ff_vf_field = {
     .name        = "field",
     .description = NULL_IF_CONFIG_SMALL("Extract a field from the input video."),
     .priv_size   = sizeof(FieldContext),

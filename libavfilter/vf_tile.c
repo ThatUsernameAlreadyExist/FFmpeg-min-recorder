@@ -87,8 +87,7 @@ static av_cold int init(AVFilterContext *ctx)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
-    return 0;
+    return ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
 }
 
 static int config_props(AVFilterLink *outlink)
@@ -113,7 +112,7 @@ static int config_props(AVFilterLink *outlink)
     outlink->h = tile->h * inlink->h + total_margin_h;
     outlink->sample_aspect_ratio = inlink->sample_aspect_ratio;
     outlink->frame_rate = av_mul_q(inlink->frame_rate,
-                                   (AVRational){ 1, tile->nb_frames });
+                                   av_make_q(1, tile->nb_frames));
     ff_draw_init(&tile->draw, inlink->format, 0);
     ff_draw_color(&tile->draw, &tile->blank, tile->rgba_color);
 
@@ -233,7 +232,7 @@ static const AVFilterPad tile_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_tile = {
+AVFilter ff_vf_tile = {
     .name          = "tile",
     .description   = NULL_IF_CONFIG_SMALL("Tile several successive frames together."),
     .init          = init,

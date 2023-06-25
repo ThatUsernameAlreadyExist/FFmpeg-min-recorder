@@ -241,8 +241,10 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_NONE
     };
 
-    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
-    return 0;
+    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
+    if (!fmts_list)
+        return AVERROR(ENOMEM);
+    return ff_set_common_formats(ctx, fmts_list);
 }
 
 static int config_input(AVFilterLink *inlink)
@@ -342,7 +344,7 @@ static const AVFilterPad super2xsai_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_super2xsai = {
+AVFilter ff_vf_super2xsai = {
     .name          = "super2xsai",
     .description   = NULL_IF_CONFIG_SMALL("Scale the input by 2x using the Super2xSaI pixel art algorithm."),
     .priv_size     = sizeof(Super2xSaIContext),

@@ -60,7 +60,7 @@ static void arith_normalise(ArithCoder *c)
     }
 }
 
-ARITH_GET_BIT()
+ARITH_GET_BIT(arith)
 
 static int arith_get_bits(ArithCoder *c, int bits)
 {
@@ -105,7 +105,7 @@ static int arith_get_prob(ArithCoder *c, int16_t *probs)
     return sym;
 }
 
-ARITH_GET_MODEL_SYM()
+ARITH_GET_MODEL_SYM(arith)
 
 static void arith_init(ArithCoder *c, GetBitContext *gb)
 {
@@ -139,8 +139,6 @@ static int decode_pal(MSS12Context *ctx, ArithCoder *acoder)
 static int mss1_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
                              AVPacket *avpkt)
 {
-    const uint8_t *buf = avpkt->data;
-    int buf_size = avpkt->size;
     MSS1Context *ctx = avctx->priv_data;
     MSS12Context *c = &ctx->ctx;
     GetBitContext gb;
@@ -148,7 +146,9 @@ static int mss1_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     int pal_changed = 0;
     int ret;
 
-    init_get_bits(&gb, buf, buf_size * 8);
+    if ((ret = init_get_bits8(&gb, avpkt->data, avpkt->size)) < 0)
+        return ret;
+
     arith_init(&acoder, &gb);
 
     if ((ret = ff_reget_buffer(avctx, ctx->pic)) < 0)
@@ -182,7 +182,7 @@ static int mss1_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     *got_frame      = 1;
 
     /* always report that the buffer was completely consumed */
-    return buf_size;
+    return avpkt->size;
 }
 
 static av_cold int mss1_decode_init(AVCodecContext *avctx)
@@ -197,6 +197,8 @@ static av_cold int mss1_decode_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
 
     ret = ff_mss12_decode_init(&c->ctx, 0, &c->sc, NULL);
+    if (ret < 0)
+        av_frame_free(&c->pic);
 
     avctx->pix_fmt = AV_PIX_FMT_PAL8;
 
@@ -222,5 +224,5 @@ AVCodec ff_mss1_decoder = {
     .init           = mss1_decode_init,
     .close          = mss1_decode_end,
     .decode         = mss1_decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

@@ -31,7 +31,6 @@
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
-#include "libavcodec/avcodec.h" // avcodec_find_best_pix_fmt_of_2()
 
 #include "avfilter.h"
 #include "formats.h"
@@ -281,7 +280,7 @@ static int graph_config_links(AVFilterGraph *graph, AVClass *log_ctx)
     return 0;
 }
 
-AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, char *name)
+AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, const char *name)
 {
     int i;
 
@@ -560,24 +559,40 @@ static int query_formats(AVFilterGraph *graph, AVClass *log_ctx)
                 if ((ret = avfilter_insert_filter(link, convert, 0, 0)) < 0)
                     return ret;
 
-                filter_query_formats(convert);
+                if ((ret = filter_query_formats(convert)) < 0)
+                    return ret;
+
                 inlink  = convert->inputs[0];
                 outlink = convert->outputs[0];
+                av_assert0( inlink-> in_formats->refcount > 0);
+                av_assert0( inlink->out_formats->refcount > 0);
+                av_assert0(outlink-> in_formats->refcount > 0);
+                av_assert0(outlink->out_formats->refcount > 0);
+                if (outlink->type == AVMEDIA_TYPE_AUDIO) {
+                    av_assert0( inlink-> in_samplerates->refcount > 0);
+                    av_assert0( inlink->out_samplerates->refcount > 0);
+                    av_assert0(outlink-> in_samplerates->refcount > 0);
+                    av_assert0(outlink->out_samplerates->refcount > 0);
+                    av_assert0( inlink-> in_channel_layouts->refcount > 0);
+                    av_assert0( inlink->out_channel_layouts->refcount > 0);
+                    av_assert0(outlink-> in_channel_layouts->refcount > 0);
+                    av_assert0(outlink->out_channel_layouts->refcount > 0);
+                }
                 if (!ff_merge_formats( inlink->in_formats,  inlink->out_formats,  inlink->type) ||
                     !ff_merge_formats(outlink->in_formats, outlink->out_formats, outlink->type))
-                    ret |= AVERROR(ENOSYS);
+                    ret = AVERROR(ENOSYS);
                 if (inlink->type == AVMEDIA_TYPE_AUDIO &&
                     (!ff_merge_samplerates(inlink->in_samplerates,
                                            inlink->out_samplerates) ||
                      !ff_merge_channel_layouts(inlink->in_channel_layouts,
                                                inlink->out_channel_layouts)))
-                    ret |= AVERROR(ENOSYS);
+                    ret = AVERROR(ENOSYS);
                 if (outlink->type == AVMEDIA_TYPE_AUDIO &&
                     (!ff_merge_samplerates(outlink->in_samplerates,
                                            outlink->out_samplerates) ||
                      !ff_merge_channel_layouts(outlink->in_channel_layouts,
                                                outlink->out_channel_layouts)))
-                    ret |= AVERROR(ENOSYS);
+                    ret = AVERROR(ENOSYS);
 
                 if (ret < 0) {
                     av_log(log_ctx, AV_LOG_ERROR,
@@ -616,6 +631,40 @@ static int query_formats(AVFilterGraph *graph, AVClass *log_ctx)
     return 0;
 }
 
+static int get_fmt_score(enum AVSampleFormat dst_fmt, enum AVSampleFormat src_fmt)
+{
+    int score = 0;
+
+    if (av_sample_fmt_is_planar(dst_fmt) != av_sample_fmt_is_planar(src_fmt))
+        score ++;
+
+    if (av_get_bytes_per_sample(dst_fmt) < av_get_bytes_per_sample(src_fmt)) {
+        score += 100 * (av_get_bytes_per_sample(src_fmt) - av_get_bytes_per_sample(dst_fmt));
+    }else
+        score += 10  * (av_get_bytes_per_sample(dst_fmt) - av_get_bytes_per_sample(src_fmt));
+
+    if (av_get_packed_sample_fmt(dst_fmt) == AV_SAMPLE_FMT_S32 &&
+        av_get_packed_sample_fmt(src_fmt) == AV_SAMPLE_FMT_FLT)
+        score += 20;
+
+    if (av_get_packed_sample_fmt(dst_fmt) == AV_SAMPLE_FMT_FLT &&
+        av_get_packed_sample_fmt(src_fmt) == AV_SAMPLE_FMT_S32)
+        score += 2;
+
+    return score;
+}
+
+static enum AVSampleFormat find_best_sample_fmt_of_2(enum AVSampleFormat dst_fmt1, enum AVSampleFormat dst_fmt2,
+                                                     enum AVSampleFormat src_fmt)
+{
+    int score1, score2;
+
+    score1 = get_fmt_score(dst_fmt1, src_fmt);
+    score2 = get_fmt_score(dst_fmt2, src_fmt);
+
+    return score1 < score2 ? dst_fmt1 : dst_fmt2;
+}
+
 static int pick_format(AVFilterLink *link, AVFilterLink *ref)
 {
     if (!link || !link->in_formats)
@@ -628,11 +677,24 @@ static int pick_format(AVFilterLink *link, AVFilterLink *ref)
             int i;
             for (i=0; i<link->in_formats->nb_formats; i++) {
                 enum AVPixelFormat p = link->in_formats->formats[i];
-                best= avcodec_find_best_pix_fmt_of_2(best, p, ref->format, has_alpha, NULL);
+                best= av_find_best_pix_fmt_of_2(best, p, ref->format, has_alpha, NULL);
             }
             av_log(link->src,AV_LOG_DEBUG, "picking %s out of %d ref:%s alpha:%d\n",
                    av_get_pix_fmt_name(best), link->in_formats->nb_formats,
                    av_get_pix_fmt_name(ref->format), has_alpha);
+            link->in_formats->formats[0] = best;
+        }
+    } else if (link->type == AVMEDIA_TYPE_AUDIO) {
+        if(ref && ref->type == AVMEDIA_TYPE_AUDIO){
+            enum AVSampleFormat best= AV_SAMPLE_FMT_NONE;
+            int i;
+            for (i=0; i<link->in_formats->nb_formats; i++) {
+                enum AVSampleFormat p = link->in_formats->formats[i];
+                best = find_best_sample_fmt_of_2(best, p, ref->format);
+            }
+            av_log(link->src,AV_LOG_DEBUG, "picking %s out of %d ref:%s\n",
+                   av_get_sample_fmt_name(best), link->in_formats->nb_formats,
+                   av_get_sample_fmt_name(ref->format));
             link->in_formats->formats[0] = best;
         }
     }
@@ -1104,7 +1166,7 @@ static int graph_config_formats(AVFilterGraph *graph, AVClass *log_ctx)
     return 0;
 }
 
-static int ff_avfilter_graph_config_pointers(AVFilterGraph *graph,
+static int graph_config_pointers(AVFilterGraph *graph,
                                              AVClass *log_ctx)
 {
     unsigned i, j;
@@ -1196,7 +1258,7 @@ int avfilter_graph_config(AVFilterGraph *graphctx, void *log_ctx)
         return ret;
     if ((ret = graph_config_links(graphctx, log_ctx)))
         return ret;
-    if ((ret = ff_avfilter_graph_config_pointers(graphctx, log_ctx)))
+    if ((ret = graph_config_pointers(graphctx, log_ctx)))
         return ret;
 
     return 0;
@@ -1265,6 +1327,8 @@ static void heap_bubble_up(AVFilterGraph *graph,
 {
     AVFilterLink **links = graph->sink_links;
 
+    av_assert0(index >= 0);
+
     while (index) {
         int parent = (index - 1) >> 1;
         if (links[parent]->current_pts >= link->current_pts)
@@ -1281,6 +1345,8 @@ static void heap_bubble_down(AVFilterGraph *graph,
                              AVFilterLink *link, int index)
 {
     AVFilterLink **links = graph->sink_links;
+
+    av_assert0(index >= 0);
 
     while (1) {
         int child = 2 * index + 1;

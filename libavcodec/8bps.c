@@ -150,7 +150,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
         c->planemap[0] = 0; // 1st plane is palette indexes
         break;
     case 24:
-        avctx->pix_fmt = avctx->get_format(avctx, pixfmt_rgb24);
+        avctx->pix_fmt = ff_get_format(avctx, pixfmt_rgb24);
         c->planes      = 3;
         c->planemap[0] = 2; // 1st plane is red
         c->planemap[1] = 1; // 2nd plane is green
@@ -184,5 +184,5 @@ AVCodec ff_eightbps_decoder = {
     .priv_data_size = sizeof(EightBpsContext),
     .init           = decode_init,
     .decode         = decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

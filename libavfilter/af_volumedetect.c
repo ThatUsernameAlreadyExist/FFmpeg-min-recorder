@@ -44,9 +44,7 @@ static int query_formats(AVFilterContext *ctx)
 
     if (!(formats = ff_make_format_list(sample_fmts)))
         return AVERROR(ENOMEM);
-    ff_set_common_formats(ctx, formats);
-
-    return 0;
+    return ff_set_common_formats(ctx, formats);
 }
 
 static int filter_frame(AVFilterLink *inlink, AVFrame *samples)
@@ -148,7 +146,7 @@ static const AVFilterPad volumedetect_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_volumedetect = {
+AVFilter ff_af_volumedetect = {
     .name          = "volumedetect",
     .description   = NULL_IF_CONFIG_SMALL("Detect audio volume."),
     .priv_size     = sizeof(VolDetectContext),

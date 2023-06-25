@@ -51,9 +51,8 @@ static av_cold int query_formats(AVFilterContext *ctx)
     ASetRateContext *sr = ctx->priv;
     int sample_rates[] = { sr->sample_rate, -1 };
 
-    ff_formats_ref(ff_make_format_list(sample_rates),
+    return ff_formats_ref(ff_make_format_list(sample_rates),
                    &ctx->outputs[0]->in_samplerates);
-    return 0;
 }
 
 static av_cold int config_props(AVFilterLink *outlink)
@@ -107,7 +106,7 @@ static const AVFilterPad asetrate_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_asetrate = {
+AVFilter ff_af_asetrate = {
     .name          = "asetrate",
     .description   = NULL_IF_CONFIG_SMALL("Change the sample rate without "
                                           "altering the data."),

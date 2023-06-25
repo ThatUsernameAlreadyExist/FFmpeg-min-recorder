@@ -37,23 +37,18 @@
 #include <windows.h>
 #include <share.h>
 #include <errno.h>
+#include "wchar_filename.h"
 
 static int win32_open(const char *filename_utf8, int oflag, int pmode)
 {
     int fd;
-    int num_chars;
     wchar_t *filename_w;
 
     /* convert UTF-8 to wide chars */
-    num_chars = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, filename_utf8, -1, NULL, 0);
-    if (num_chars <= 0)
-        goto fallback;
-    filename_w = av_mallocz(sizeof(wchar_t) * num_chars);
-    if (!filename_w) {
-        errno = ENOMEM;
+    if (utf8towchar(filename_utf8, &filename_w))
         return -1;
-    }
-    MultiByteToWideChar(CP_UTF8, 0, filename_utf8, -1, filename_w, num_chars);
+    if (!filename_w)
+        goto fallback;
 
     fd = _wsopen(filename_w, oflag, SH_DENYNO, pmode);
     av_freep(&filename_w);
@@ -92,4 +87,38 @@ int avpriv_open(const char *filename, int flags, ...)
 #endif
 
     return fd;
+}
+
+FILE *av_fopen_utf8(const char *path, const char *mode)
+{
+    int fd;
+    int access;
+    const char *m = mode;
+
+    switch (*m++) {
+    case 'r': access = O_RDONLY; break;
+    case 'w': access = O_CREAT|O_WRONLY|O_TRUNC; break;
+    case 'a': access = O_CREAT|O_WRONLY|O_APPEND; break;
+    default :
+        errno = EINVAL;
+        return NULL;
+    }
+    while (*m) {
+        if (*m == '+') {
+            access &= ~(O_RDONLY | O_WRONLY);
+            access |= O_RDWR;
+        } else if (*m == 'b') {
+#ifdef O_BINARY
+            access |= O_BINARY;
+#endif
+        } else if (*m) {
+            errno = EINVAL;
+            return NULL;
+        }
+        m++;
+    }
+    fd = avpriv_open(path, access, 0666);
+    if (fd == -1)
+        return NULL;
+    return fdopen(fd, mode);
 }

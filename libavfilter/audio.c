@@ -28,10 +28,14 @@
 #include "avfilter.h"
 #include "internal.h"
 
+#if FF_API_AVFILTERBUFFER
+FF_DISABLE_DEPRECATION_WARNINGS
 int avfilter_ref_get_channels(AVFilterBufferRef *ref)
 {
     return ref->audio ? ref->audio->channels : 0;
 }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
 AVFrame *ff_null_get_audio_buffer(AVFilterLink *link, int nb_samples)
 {
@@ -81,6 +85,7 @@ AVFrame *ff_get_audio_buffer(AVFilterLink *link, int nb_samples)
 }
 
 #if FF_API_AVFILTERBUFFER
+FF_DISABLE_DEPRECATION_WARNINGS
 AVFilterBufferRef* avfilter_get_audio_buffer_ref_from_arrays_channels(uint8_t **data,
                                                                       int linesize,int perms,
                                                                       int nb_samples,
@@ -124,9 +129,9 @@ AVFilterBufferRef* avfilter_get_audio_buffer_ref_from_arrays_channels(uint8_t **
     samples->linesize[0] = samplesref->linesize[0] = linesize;
 
     if (planes > FF_ARRAY_ELEMS(samples->data)) {
-        samples->   extended_data = av_mallocz(sizeof(*samples->extended_data) *
+        samples->   extended_data = av_mallocz_array(sizeof(*samples->extended_data),
                                                planes);
-        samplesref->extended_data = av_mallocz(sizeof(*samplesref->extended_data) *
+        samplesref->extended_data = av_mallocz_array(sizeof(*samplesref->extended_data),
                                                planes);
 
         if (!samples->extended_data || !samplesref->extended_data)
@@ -167,4 +172,5 @@ AVFilterBufferRef* avfilter_get_audio_buffer_ref_from_arrays(uint8_t **data,
                                                               nb_samples, sample_fmt,
                                                               channels, channel_layout);
 }
+FF_ENABLE_DEPRECATION_WARNINGS
 #endif

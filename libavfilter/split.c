@@ -52,6 +52,8 @@ static av_cold int split_init(AVFilterContext *ctx)
         snprintf(name, sizeof(name), "output%d", i);
         pad.type = ctx->filter->inputs[0].type;
         pad.name = av_strdup(name);
+        if (!pad.name)
+            return AVERROR(ENOMEM);
 
         ff_insert_outpad(ctx, i, &pad);
     }
@@ -113,7 +115,7 @@ static const AVFilterPad avfilter_vf_split_inputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_split = {
+AVFilter ff_vf_split = {
     .name        = "split",
     .description = NULL_IF_CONFIG_SMALL("Pass on the input to N video outputs."),
     .priv_size   = sizeof(SplitContext),
@@ -134,7 +136,7 @@ static const AVFilterPad avfilter_af_asplit_inputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_af_asplit = {
+AVFilter ff_af_asplit = {
     .name        = "asplit",
     .description = NULL_IF_CONFIG_SMALL("Pass on the audio input to N audio outputs."),
     .priv_size   = sizeof(SplitContext),
