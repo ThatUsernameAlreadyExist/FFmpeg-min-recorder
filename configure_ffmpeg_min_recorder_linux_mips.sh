@@ -38,5 +38,8 @@ CROSS_COMPILE=$TOOLCHAIN/mips-linux-gnu-
 --enable-demuxer=h264 \
 --enable-parser=h264 \
 --enable-decoder=h264 \
+--enable-demuxer=hevc \
+--enable-parser=hevc \
+--enable-decoder=hevc \
 --enable-protocol=file
 

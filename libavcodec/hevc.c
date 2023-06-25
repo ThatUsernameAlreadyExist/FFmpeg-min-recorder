@@ -2520,45 +2520,7 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
 static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
                              AVPacket *avpkt)
 {
-    int ret;
-    HEVCContext *s = avctx->priv_data;
-
-    if (!avpkt->size) {
-        ret = ff_hevc_output_frame(s, data, 1);
-        if (ret < 0)
-            return ret;
-
-        *got_output = ret;
-        return 0;
-    }
-
-    s->ref = NULL;
-    ret = decode_nal_units(s, avpkt->data, avpkt->size);
-    if (ret < 0)
-        return ret;
-
-    /* verify the SEI checksum */
-    if (avctx->err_recognition & AV_EF_CRCCHECK && s->is_decoded &&
-        avctx->err_recognition & AV_EF_EXPLODE &&
-        s->is_md5) {
-        ret = verify_md5(s, s->ref->frame);
-        if (ret < 0) {
-            ff_hevc_unref_frame(s, s->ref, ~0);
-            return ret;
-        }
-    }
-    s->is_md5 = 0;
-
-    if (s->is_decoded) {
-        av_log(avctx, AV_LOG_DEBUG, "Decoded frame with POC %d.\n", s->poc);
-        s->is_decoded = 0;
-    }
-
-    if (s->output_frame->buf[0]) {
-        av_frame_move_ref(data, s->output_frame);
-        *got_output = 1;
-    }
-
+    *got_output = 1;
     return avpkt->size;
 }
 
@@ -2598,62 +2560,6 @@ fail:
 
 static av_cold int hevc_decode_free(AVCodecContext *avctx)
 {
-    HEVCContext       *s = avctx->priv_data;
-    HEVCLocalContext *lc = s->HEVClc;
-    int i;
-
-    pic_arrays_free(s);
-
-    if (lc)
-        av_freep(&lc->edge_emu_buffer);
-    av_freep(&s->md5_ctx);
-
-    for(i=0; i < s->nals_allocated; i++) {
-        av_freep(&s->skipped_bytes_pos_nal[i]);
-    }
-    av_freep(&s->skipped_bytes_pos_size_nal);
-    av_freep(&s->skipped_bytes_nal);
-    av_freep(&s->skipped_bytes_pos_nal);
-
-    av_freep(&s->cabac_state);
-
-    av_frame_free(&s->tmp_frame);
-    av_frame_free(&s->output_frame);
-
-    for (i = 0; i < FF_ARRAY_ELEMS(s->DPB); i++) {
-        ff_hevc_unref_frame(s, &s->DPB[i], ~0);
-        av_frame_free(&s->DPB[i].frame);
-    }
-
-    for (i = 0; i < FF_ARRAY_ELEMS(s->vps_list); i++)
-        av_freep(&s->vps_list[i]);
-    for (i = 0; i < FF_ARRAY_ELEMS(s->sps_list); i++)
-        av_buffer_unref(&s->sps_list[i]);
-    for (i = 0; i < FF_ARRAY_ELEMS(s->pps_list); i++)
-        av_buffer_unref(&s->pps_list[i]);
-
-    av_freep(&s->sh.entry_point_offset);
-    av_freep(&s->sh.offset);
-    av_freep(&s->sh.size);
-
-    for (i = 1; i < s->threads_number; i++) {
-        lc = s->HEVClcList[i];
-        if (lc) {
-            av_freep(&lc->edge_emu_buffer);
-
-            av_freep(&s->HEVClcList[i]);
-            av_freep(&s->sList[i]);
-        }
-    }
-    if (s->HEVClc == s->HEVClcList[0])
-        s->HEVClc = NULL;
-    av_freep(&s->HEVClcList[0]);
-
-    for (i = 0; i < s->nals_allocated; i++)
-        av_freep(&s->nals[i].rbsp_buffer);
-    av_freep(&s->nals);
-    s->nals_allocated = 0;
-
     return 0;
 }
 
@@ -2829,37 +2735,13 @@ static int hevc_decode_extradata(HEVCContext *s)
 
 static av_cold int hevc_decode_init(AVCodecContext *avctx)
 {
-    HEVCContext *s = avctx->priv_data;
-    int ret;
-
-    ff_init_cabac_states();
-
-    avctx->internal->allocate_progress = 1;
-
-    ret = hevc_init_context(avctx);
-    if (ret < 0)
-        return ret;
-
-    s->enable_parallel_tiles = 0;
-
-    if(avctx->active_thread_type & FF_THREAD_SLICE)
-        s->threads_number = avctx->thread_count;
-    else
-        s->threads_number = 1;
-
-    if (avctx->extradata_size > 0 && avctx->extradata) {
-        ret = hevc_decode_extradata(s);
-        if (ret < 0) {
-            hevc_decode_free(avctx);
-            return ret;
-        }
-    }
-
-    if((avctx->active_thread_type & FF_THREAD_FRAME) && avctx->thread_count > 1)
-            s->threads_type = FF_THREAD_FRAME;
-        else
-            s->threads_type = FF_THREAD_SLICE;
-
+    avctx->width = 1920;
+    avctx->height = 1080;
+    avctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    avctx->has_b_frames = 0;
+    avctx->coded_width = 1920;
+    avctx->coded_height = 1080;
+    
     return 0;
 }
 
@@ -2879,9 +2761,7 @@ static av_cold int hevc_init_thread_copy(AVCodecContext *avctx)
 
 static void hevc_decode_flush(AVCodecContext *avctx)
 {
-    HEVCContext *s = avctx->priv_data;
-    ff_hevc_flush_dpb(s);
-    s->max_ra = INT_MAX;
+
 }
 
 #define OFFSET(x) offsetof(HEVCContext, x)
@@ -2904,7 +2784,7 @@ AVCodec ff_hevc_decoder = {
     .long_name             = NULL_IF_CONFIG_SMALL("HEVC (High Efficiency Video Coding)"),
     .type                  = AVMEDIA_TYPE_VIDEO,
     .id                    = AV_CODEC_ID_HEVC,
-    .priv_data_size        = sizeof(HEVCContext),
+    .priv_data_size        = 0,
     .priv_class            = &hevc_decoder_class,
     .init                  = hevc_decode_init,
     .close                 = hevc_decode_free,
